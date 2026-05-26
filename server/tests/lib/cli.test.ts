@@ -52,6 +52,16 @@ describe("parseCliArgs", () => {
     expect(result.prompt).toBe("Add unit tests");
   });
 
+  test("allows --model to be absent (defaultModel from config can fill in)", () => {
+    const result = parseCliArgsWithArgs([
+      "--repo", "owner/repo",
+      "--prompt", "Add tests",
+    ]);
+    expect(result.repo).toBe("owner/repo");
+    expect(result.model).toBeUndefined();
+    expect(result.prompt).toBe("Add tests");
+  });
+
   test("parses all optional arguments", () => {
     const result = parseCliArgsWithArgs([
       "--repo", "owner/repo",
@@ -84,15 +94,16 @@ describe("parseCliArgs", () => {
     expect(() =>
       parseCliArgsWithArgs(["--model", "sonnet", "--prompt", "test"])
     ).toThrow(/Missing required argument: --repo/);
+    // Note: usage message now mentions --model as optional since it can come from config
   });
 
-  test("throws ValidationError when --model is missing", () => {
-    expect(() =>
-      parseCliArgsWithArgs(["--repo", "owner/repo", "--prompt", "test"])
-    ).toThrow(ValidationError);
-    expect(() =>
-      parseCliArgsWithArgs(["--repo", "owner/repo", "--prompt", "test"])
-    ).toThrow(/Missing required argument: --model/);
+  test("--model is now optional at parse time (validated later with config)", () => {
+    // --model is no longer required in parseCliArgs — resolveModels() does the final check
+    const result = parseCliArgsWithArgs([
+      "--repo", "owner/repo",
+      "--prompt", "test",
+    ]);
+    expect(result.model).toBeUndefined();
   });
 
   test("throws ValidationError when neither --prompt nor --prompt-file is provided", () => {
@@ -131,6 +142,17 @@ describe("parseCliArgs", () => {
     ]);
     expect(result.newBranch).toBeUndefined();
     expect(result.fromBranch).toBeUndefined();
+    expect(result.configPath).toBeUndefined();
+  });
+
+  test("parses --config flag", () => {
+    const result = parseCliArgsWithArgs([
+      "--repo", "owner/repo",
+      "--model", "sonnet",
+      "--prompt", "test",
+      "--config", "/path/to/config.json",
+    ]);
+    expect(result.configPath).toBe("/path/to/config.json");
   });
 
   test("--help triggers process.exit(0)", () => {

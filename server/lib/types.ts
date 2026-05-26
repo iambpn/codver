@@ -1,10 +1,21 @@
+export interface CodverConfig {
+  /** Git user name to set in the cloned repo (local config only). */
+  gitUserName?: string;
+  /** Git user email to set in the cloned repo (local config only). */
+  gitUserEmail?: string;
+  /** Default model for generative AI tasks on the host (branch naming, commit messages, PR descriptions, dev-compose, gitignore).
+   *  Falls back to --model if not set; used as the generative model when both --model and defaultModel are specified. */
+  defaultModel?: string;
+}
+
 export interface CliArgs {
   repo: string;
-  model: string;
+  model?: string;
   prompt?: string;
   promptFile?: string;
   newBranch?: string;
   fromBranch?: string;
+  configPath?: string;
 }
 
 export interface RepoInfo {

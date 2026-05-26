@@ -30,13 +30,27 @@ Subcommands:
 
 Required (for main pipeline):
   --repo <url>             GitHub repository URL to clone
-  --model <provider/id>    Pi agent model (e.g., anthropic/claude-sonnet-4-20250514)
   --prompt <text>         Direct prompt text (mutually exclusive with --prompt-file)
   --prompt-file <path>    Path to a prompt file (mutually exclusive with --prompt)
 
+  At least one of --model or config defaultModel must be provided:
+  --model <provider/id>    Model for the pi agent task inside the container
+                           (e.g., anthropic/claude-sonnet-4-20250514)
+
 Optional (for main pipeline):
+  --config <path>          Path to a config JSON file
+                           (default: ~/.config/.codver)
   --new-branch <name>     Name for the new branch (auto-generated if omitted)
   --from-branch <name>    Base branch to work from (defaults to repo's default branch)
+
+Configuration file (~/.config/.codver):
+  The config file is optional. When present, it may contain:
+
+    gitUserName     Git user.name to set in the cloned repo (local config)
+    gitUserEmail    Git user.email to set in the cloned repo (local config)
+    defaultModel    Model for host-side generative tasks (branch naming,
+                    commit messages, PR descriptions, dev-compose, gitignore).
+                    Falls back to --model if not set.
 
 Host Dependencies (must be installed and configured on the host):
   gh CLI                     GitHub CLI — https://cli.github.com/
@@ -53,6 +67,8 @@ Provider API Keys (set as environment variables):
 Examples:
   bun run codver.ts --repo https://github.com/owner/repo --model anthropic/claude-sonnet-4-20250514 --prompt "Add unit tests"
   bun run codver.ts --repo owner/repo --model sonnet --prompt-file task.md --new-branch add-tests --from-branch main
+  bun run codver.ts --repo owner/repo --prompt "Add unit tests"  # uses defaultModel from config
+  bun run codver.ts --config ./my-config.json --repo owner/repo --model sonnet --prompt "fix bug"
   bun run codver.ts clean --dry-run
 `);
 }
@@ -66,6 +82,7 @@ export function parseCliArgs(): CliArgs {
       "prompt-file": { type: "string" },
       "new-branch": { type: "string" },
       "from-branch": { type: "string" },
+      config: { type: "string" },
       help: { type: "boolean", default: false },
     },
     strict: true,
@@ -83,14 +100,13 @@ export function parseCliArgs(): CliArgs {
   const promptFile = values["prompt-file"] as string | undefined;
   const newBranch = values["new-branch"] as string | undefined;
   const fromBranch = values["from-branch"] as string | undefined;
+  const configPath = values["config"] as string | undefined;
 
   // Validate required args
+  // --model is no longer strictly required here — it can come from config.defaultModel.
+  // The final check happens in resolveModels() after config is loaded.
   if (!repo) {
-    throw new ValidationError("Missing required argument: --repo\nUsage: bun run codver.ts --repo <github-url> --model <provider/model> --prompt <text> [--prompt-file <path>] [--new-branch <name>] [--from-branch <name>]");
-  }
-
-  if (!model) {
-    throw new ValidationError("Missing required argument: --model\nUsage: bun run codver.ts --repo <github-url> --model <provider/model> --prompt <text>");
+    throw new ValidationError("Missing required argument: --repo\nUsage: bun run codver.ts --repo <github-url> --prompt <text> [--model <provider/model>] [--config <path>]");
   }
 
   // Exactly one of --prompt or --prompt-file must be provided
@@ -104,11 +120,12 @@ export function parseCliArgs(): CliArgs {
 
   return {
     repo,
-    model,
+    model: model || undefined,
     prompt: prompt || undefined,
     promptFile: promptFile || undefined,
     newBranch: newBranch || undefined,
     fromBranch: fromBranch || undefined,
+    configPath: configPath || undefined,
   };
 }
 

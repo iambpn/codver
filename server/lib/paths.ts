@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs";
 
 /**
  * Centralized path constants for all directories and files created by Codver.
@@ -12,6 +13,19 @@ import path from "node:path";
 
 /** Root working directory for Codver (under $HOME). */
 export const CODVER_HOME_DIR = path.join(os.homedir(), ".codver");
+
+/**
+ * Get the global config file path.
+ * Resolves dynamically to respect HOME environment variable overrides
+ * (important for testability).
+ */
+export function getGlobalConfigPath(): string {
+  const home = process.env.HOME || os.homedir();
+  return path.join(home, ".config", "codver", "codver.config.json");
+}
+
+/** Path to the global config file (computed at module load). */
+export const CODVER_CONFIG_PATH = getGlobalConfigPath();
 
 // ─── Per-repo working directory pattern ────────────────────────────
 
@@ -73,6 +87,19 @@ export const GITIGNORE_ENTRIES: readonly string[] = [
 export const CODVER_MANAGED_DIRS: readonly string[] = [
   CODVER_HOME_DIR,
 ] as const;
+
+/**
+ * Resolve the global config directory and ensure it exists.
+ * Creates ~/.config if it doesn't exist.
+ */
+export function ensureConfigDir(): string {
+  const home = process.env.HOME || os.homedir();
+  const configDir = path.join(home, ".config");
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
+  }
+  return configDir;
+}
 
 /**
  * All top-level file patterns that Codver creates inside a repo clone,

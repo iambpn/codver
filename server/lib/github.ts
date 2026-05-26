@@ -4,6 +4,30 @@ import { CODVER_HOME_DIR, DEV_FILES, PR_BODY_FILE, getRepoDir } from "./paths";
 import { info, RED, RESET, spinningStep, step, success, YELLOW } from "./progress";
 import type { RepoInfo } from "./types";
 
+export async function configureGitUser(repoDir: string, config: { gitUserName?: string; gitUserEmail?: string }): Promise<void> {
+  if (config.gitUserName) {
+    const result = Bun.spawnSync(["git", "-C", repoDir, "config", "user.name", config.gitUserName], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (result.exitCode !== 0) {
+      const errMsg = result.stderr.toString();
+      throw new Error(`Failed to set git user.name: ${errMsg}`);
+    }
+  }
+
+  if (config.gitUserEmail) {
+    const result = Bun.spawnSync(["git", "-C", repoDir, "config", "user.email", config.gitUserEmail], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (result.exitCode !== 0) {
+      const errMsg = result.stderr.toString();
+      throw new Error(`Failed to set git user.email: ${errMsg}`);
+    }
+  }
+}
+
 export async function cloneRepo(repoUrl: string): Promise<RepoInfo> {
   return spinningStep("Cloning repository", async () => {
     // Ensure ~/.codver exists

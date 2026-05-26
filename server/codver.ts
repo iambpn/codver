@@ -9,15 +9,48 @@
  *   clean     Remove Codver output directories and files
  */
 
-import { parseCliArgs, validateModel, readPromptContentAsync, checkDependencies, sanitizeBranchName, ValidationError } from "./lib/cli";
-import { cloneRepo, setupBranch, stageAndCommit, hasCodeChanges, getChangedFiles, getFullDiff, pushBranch, createPR } from "./lib/github";
+import {
+  parseCliArgs,
+  validateModel,
+  readPromptContentAsync,
+  checkDependencies,
+  sanitizeBranchName,
+  ValidationError,
+} from "./lib/cli";
+import {
+  cloneRepo,
+  setupBranch,
+  configureGitUser,
+  stageAndCommit,
+  hasCodeChanges,
+  getChangedFiles,
+  getFullDiff,
+  pushBranch,
+  createPR,
+} from "./lib/github";
 import { composeUp, composeRunAgent, composeDown } from "./lib/docker";
 import { generateBunfigToml, generateEnvFile, hardenCompose, validateEnvVars } from "./lib/security";
-import { generateDevCompose, modifyGitignore, generateBranchName, generateCommitMessage, generatePRDescription, generateNoUpdateDoc } from "./lib/ai";
+import {
+  generateDevCompose,
+  modifyGitignore,
+  generateBranchName,
+  generateCommitMessage,
+  generatePRDescription,
+  generateNoUpdateDoc,
+} from "./lib/ai";
 import { heading, step, spinningStep, info, success, error, warn, blankLine } from "./lib/progress";
-import { DEV_COMPOSE_FILE, BUNFIG_FILE, ENV_FILE, PLAN_FILE, CODVER_HOME_DIR, NO_UPDATE_FILE } from "./lib/paths";
+import {
+  DEV_COMPOSE_FILE,
+  BUNFIG_FILE,
+  ENV_FILE,
+  PLAN_FILE,
+  CODVER_HOME_DIR,
+  NO_UPDATE_FILE,
+  CODVER_CONFIG_PATH,
+} from "./lib/paths";
 import { parseCleanArgs, runClean } from "./lib/clean";
-import type { ModelInfo } from "./lib/types";
+import { loadConfig, resolveModels } from "./lib/config";
+import type { ModelInfo, CodverConfig } from "./lib/types";
 import path from "node:path";
 
 // ─── Subcommand dispatch ───────────────────────────────────────────
@@ -54,6 +87,31 @@ async function main() {
   const args = parseCliArgs();
 
   // ════════════════════════════════════════════════════════════════
+  // Load configuration
+  // ════════════════════════════════════════════════════════════════
+  const config: CodverConfig = loadConfig(args.configPath);
+
+  if (args.configPath) {
+    info(`Config loaded from: ${args.configPath}`);
+  } else {
+    const globalConfigPath = CODVER_CONFIG_PATH;
+    const { existsSync } = await import("node:fs");
+    if (existsSync(globalConfigPath)) {
+      info(`Config loaded from: ${globalConfigPath}`);
+    }
+  }
+
+  // Check dependencies
+  await checkDependencies();
+
+  // Resolve models:
+  //   - generativeModel: used for host-side AI tasks (branch naming, commit msgs, PR desc, dev-compose, gitignore)
+  //   - agentModel:      used for the pi agent task inside the container
+  // The --model flag always takes priority for the agent task.
+  // The config defaultModel always takes priority for generative tasks.
+  const { generativeModel, agentModel } = resolveModels(args.model, config.defaultModel);
+
+  // ════════════════════════════════════════════════════════════════
   // Phase 1: Setup & Validation
   // ════════════════════════════════════════════════════════════════
   heading("Phase 1: Setup & Validation");
@@ -62,25 +120,49 @@ async function main() {
   const promptContent = await readPromptContentAsync(args);
   info(`Prompt loaded (${promptContent.length} chars)`);
 
-  // Validate model
-  let modelInfo: ModelInfo;
+  // Validate generative model (used for branch naming, commit messages, PR descriptions, etc.)
+  let generativeModelInfo: ModelInfo;
   try {
-    const validated = await validateModel(args.model);
-    modelInfo = {
+    const validated = await validateModel(generativeModel);
+    generativeModelInfo = {
       model: validated.model,
       provider: validated.provider,
     };
   } catch (err) {
-    error(`Model validation failed: ${err}`);
+    error(`Generative model validation failed: ${err}`);
     process.exit(1);
   }
 
-  // Validate provider API keys
-  const envValidation = validateEnvVars(modelInfo.provider);
-  if (!envValidation.valid) {
-    error(`Missing required provider API keys: ${envValidation.missing.join(", ")}`);
-    error("Please set the required API keys and try again.");
-    process.exit(1);
+  // Validate agent model (used for the pi agent task inside the container)
+  let agentModelInfo: ModelInfo;
+  if (agentModel !== generativeModel) {
+    try {
+      const validated = await validateModel(agentModel);
+      agentModelInfo = {
+        model: validated.model,
+        provider: validated.provider,
+      };
+    } catch (err) {
+      error(`Agent model validation failed: ${err}`);
+      process.exit(1);
+    }
+  } else {
+    // Same model — reuse the validated result
+    agentModelInfo = generativeModelInfo;
+  }
+
+  // Validate provider API keys (check both providers if different)
+  const providers = new Set([generativeModelInfo.provider]);
+  if (agentModelInfo.provider !== generativeModelInfo.provider) {
+    providers.add(agentModelInfo.provider);
+  }
+  for (const provider of providers) {
+    const envValidation = validateEnvVars(provider);
+    if (!envValidation.valid) {
+      error(`Missing required provider API keys for ${provider}: ${envValidation.missing.join(", ")}`);
+      error("Please set the required API keys and try again.");
+      process.exit(1);
+    }
   }
   success("Provider API keys validated");
 
@@ -88,19 +170,16 @@ async function main() {
   let newBranch = args.newBranch;
   if (!newBranch) {
     info("No branch name provided, generating from prompt...");
-    newBranch = sanitizeBranchName(
-      await generateBranchName(promptContent, modelInfo.model)
-    );
+    const branchName = await generateBranchName(promptContent, generativeModelInfo.model);
+    newBranch = sanitizeBranchName(branchName);
     info(`Generated branch name: ${newBranch}`);
   } else {
     newBranch = `codver/${sanitizeBranchName(newBranch.replace(/^codver\/?/, ""))}`;
   }
 
-  // Check dependencies
-  await checkDependencies();
-
   info(`Repository: ${args.repo}`);
-  info(`Model: ${modelInfo.model.provider}/${modelInfo.model.id}`);
+  info(`Generative model: ${generativeModelInfo.model.provider}/${generativeModelInfo.model.id}`);
+  info(`Agent model: ${agentModelInfo.model.provider}/${agentModelInfo.model.id}`);
   info(`New branch: ${newBranch}`);
   info(`From branch: ${args.fromBranch || "(default)"}`);
 
@@ -113,6 +192,16 @@ async function main() {
   const cwd = repoInfo.repoDir;
 
   await setupBranch(cwd, args.fromBranch, newBranch);
+
+  // Configure local git user from config (if set)
+  if (config.gitUserName || config.gitUserEmail) {
+    await step("Configuring local git user", async () => {
+      await configureGitUser(cwd, config);
+      if (config.gitUserName) info(`  git user.name: ${config.gitUserName}`);
+      if (config.gitUserEmail) info(`  git user.email: ${config.gitUserEmail}`);
+      success("Local git user configured");
+    });
+  }
 
   // ════════════════════════════════════════════════════════════════
   // Phase 3: Generate Dev Compose
@@ -128,7 +217,7 @@ async function main() {
 
   // Generate docker-compose.dev.yml using AI (agent writes the file directly)
   await step(`Generating ${DEV_COMPOSE_FILE} with AI`, async () => {
-    await generateDevCompose(cwd, modelInfo.model, modelInfo.provider);
+    await generateDevCompose(cwd, generativeModelInfo.model, generativeModelInfo.provider);
 
     // Apply security hardening to the agent-written file
     info("Applying security hardening...");
@@ -141,7 +230,7 @@ async function main() {
 
   // Write .env file for docker compose (from environment variables)
   await step("Writing .env file", async () => {
-    const envContent = generateEnvFile(modelInfo.provider);
+    const envContent = generateEnvFile(generativeModelInfo.provider);
     await Bun.write(path.join(cwd, ENV_FILE), envContent);
     success(`${ENV_FILE} file created`);
   });
@@ -152,7 +241,7 @@ async function main() {
   heading("Phase 4: Modify .gitignore");
 
   await step("Updating .gitignore with AI", async () => {
-    await modifyGitignore(cwd, modelInfo.model);
+    await modifyGitignore(cwd, generativeModelInfo.model);
     success(".gitignore updated");
   });
 
@@ -184,7 +273,7 @@ async function main() {
     agentResult = await composeRunAgent(
       cwd,
       promptContent,
-      args.model, // pass the original model string as the user specified it
+      agentModel, // the model string for the in-container agent task
     );
   } catch (err) {
     error(`Agent execution failed: ${err}`);
@@ -192,7 +281,7 @@ async function main() {
   } finally {
     // ══════════════════════════════════════════════════════════════
     // Phase 7: Stop Containers (always runs, even on error)
-    // ══════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════
     heading("Phase 7: Cleanup");
     await composeDown(cwd);
   }
@@ -213,7 +302,7 @@ async function main() {
 
     // Get full diff for commit message generation
     const diffOutput = await getFullDiff(cwd);
-    const commitInfo = await generateCommitMessage(cwd, modelInfo.model, diffOutput);
+    const commitInfo = await generateCommitMessage(cwd, generativeModelInfo.model, diffOutput);
 
     info(`Commit title: ${commitInfo.title}`);
     blankLine();
@@ -223,22 +312,31 @@ async function main() {
     await step("Staging and committing code changes", async () => {
       // First, explicitly add files excluding dev compose files
       const addResult = Bun.spawnSync(
-        ["git", "-C", cwd, "add", "-A", "--", ".", `:!${DEV_COMPOSE_FILE}`, `:!${BUNFIG_FILE}`, `:!${ENV_FILE}`, `:!${PLAN_FILE}`],
-        { stdout: "pipe", stderr: "pipe" }
+        [
+          "git",
+          "-C",
+          cwd,
+          "add",
+          "-A",
+          "--",
+          ".",
+          `:!${DEV_COMPOSE_FILE}`,
+          `:!${BUNFIG_FILE}`,
+          `:!${ENV_FILE}`,
+          `:!${PLAN_FILE}`,
+        ],
+        { stdout: "pipe", stderr: "pipe" },
       );
 
       if (addResult.exitCode !== 0) {
         // Fallback: add all since dev compose files should be in .gitignore by now
-        const fallbackResult = Bun.spawnSync(
-          ["git", "-C", cwd, "add", "-A"],
-          { stdout: "pipe", stderr: "pipe" }
-        );
+        const fallbackResult = Bun.spawnSync(["git", "-C", cwd, "add", "-A"], { stdout: "pipe", stderr: "pipe" });
       }
 
-      const commitResult = Bun.spawnSync(
-        ["git", "-C", cwd, "commit", "-m", commitInfo.title, "-m", commitInfo.body],
-        { stdout: "pipe", stderr: "pipe" }
-      );
+      const commitResult = Bun.spawnSync(["git", "-C", cwd, "commit", "-m", commitInfo.title, "-m", commitInfo.body], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
 
       if (commitResult.exitCode !== 0) {
         const errMsg = commitResult.stderr.toString();
@@ -252,7 +350,7 @@ async function main() {
 
     // Get diff summary for PR description
     const diffSummary = await getChangedFiles(cwd);
-    const prInfo = await generatePRDescription(cwd, modelInfo.model, commitInfo.title, diffSummary);
+    const prInfo = await generatePRDescription(cwd, generativeModelInfo.model, commitInfo.title, diffSummary);
 
     info(`PR title: ${prInfo.title}`);
     blankLine();
@@ -272,23 +370,20 @@ async function main() {
 
     const noUpdateContent = await generateNoUpdateDoc(
       cwd,
-      modelInfo.model,
+      generativeModelInfo.model,
       agentResult.output,
-      promptContent
+      promptContent,
     );
 
     // Write codver-no-update.md
     await Bun.write(path.join(cwd, NO_UPDATE_FILE), noUpdateContent);
 
     // Stage and commit
-    const addResult = Bun.spawnSync(
-      ["git", "-C", cwd, "add", NO_UPDATE_FILE],
-      { stdout: "pipe", stderr: "pipe" }
-    );
+    const addResult = Bun.spawnSync(["git", "-C", cwd, "add", NO_UPDATE_FILE], { stdout: "pipe", stderr: "pipe" });
 
     const commitResult = Bun.spawnSync(
       ["git", "-C", cwd, "commit", "-m", `docs: add ${NO_UPDATE_FILE} report — no code changes required`],
-      { stdout: "pipe", stderr: "pipe" }
+      { stdout: "pipe", stderr: "pipe" },
     );
 
     if (commitResult.exitCode !== 0) {
@@ -298,9 +393,9 @@ async function main() {
     // Generate PR description for no-update case
     const prInfo = await generatePRDescription(
       cwd,
-      modelInfo.model,
+      generativeModelInfo.model,
       "docs: add codver-no-update report — no code changes required",
-      `No code changes were made. A ${NO_UPDATE_FILE} report was generated explaining why.`
+      `No code changes were made. A ${NO_UPDATE_FILE} report was generated explaining why.`,
     );
 
     // Push and create PR

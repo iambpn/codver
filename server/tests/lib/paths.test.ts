@@ -1,8 +1,11 @@
 import { test, expect, describe } from "bun:test";
 import path from "node:path";
 import os from "node:os";
+import fs from "node:fs";
 import {
   CODVER_HOME_DIR,
+  CODVER_CONFIG_PATH,
+  getGlobalConfigPath,
   DEV_COMPOSE_FILE,
   BUNFIG_FILE,
   ENV_FILE,
@@ -14,11 +17,27 @@ import {
   CODVER_MANAGED_DIRS,
   CODVER_REPO_PATTERNS,
   getRepoDir,
+  ensureConfigDir,
 } from "../../lib/paths";
 
 describe("path constants", () => {
   test("CODVER_HOME_DIR points to ~/.codver", () => {
     expect(CODVER_HOME_DIR).toBe(path.join(os.homedir(), ".codver"));
+  });
+
+  test("CODVER_CONFIG_PATH points to ~/.config/.codver", () => {
+    expect(CODVER_CONFIG_PATH).toBe(path.join(os.homedir(), ".config", ".codver"));
+  });
+
+  test("getGlobalConfigPath respects HOME env override", () => {
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/test-home";
+    try {
+      const configPath = getGlobalConfigPath();
+      expect(configPath).toBe(path.join("/tmp/test-home", ".config", ".codver"));
+    } finally {
+      process.env.HOME = originalHome;
+    }
   });
 
   test("getRepoDir constructs correct path", () => {

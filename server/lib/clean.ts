@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { CODVER_HOME_DIR, CODVER_REPO_PATTERNS } from "./paths";
+import { CODVER_HOME_DIR, CODVER_CONFIG_PATH, getGlobalConfigPath, CODVER_REPO_PATTERNS } from "./paths";
 import { blankLine, error, heading, info, success, warn } from "./progress";
 
 export interface CleanOptions {
@@ -26,7 +26,9 @@ Usage: bun run codver.ts clean [options]
 
 Options:
   --all       Remove everything (default: home dir + any repo artifact files)
+              The global config file (~/.config/.codver) is always preserved.
   --home      Remove only the ~/.codver directory (cloned repos)
+              The global config file (~/.config/.codver) is always preserved.
   --dry-run   Show what would be deleted without actually deleting anything
   --help      Show this help message
 
@@ -192,8 +194,13 @@ export function runClean(options: CleanOptions): void {
 
   if (mode === "home" || mode === "all") {
     // Remove the entire ~/.codver/ directory
+    // Note: the global config file (~/.config/.codver) is intentionally NOT removed
+    // during clean operations. It is always preserved.
     removeDir(CODVER_HOME_DIR, dryRun);
   }
+
+  blankLine();
+  info(`Config file: ${CODVER_CONFIG_PATH} (preserved)`);
 
   // ─── Phase 2: Clean dev files inside repos (only in --all mode) ─
   // This is only relevant if --home was used and we kept the dir structure
