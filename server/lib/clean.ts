@@ -74,9 +74,7 @@ function formatBytes(bytes: number): string {
  * Remove a directory recursively.
  */
 async function removeDir(dirPath: string, dryRun: boolean): Promise<boolean> {
-  const exists = await Bun.file(dirPath).exists();
-  if (!exists) {
-    info(`  Directory does not exist, skipping: ${dirPath}`);
+  if (!dirPath) {
     return false;
   }
 
@@ -84,7 +82,7 @@ async function removeDir(dirPath: string, dryRun: boolean): Promise<boolean> {
   try {
     stats = await Bun.file(dirPath).stat();
   } catch {
-    info(`  Cannot stat path, skipping: ${dirPath}`);
+    info(`  Directory does not exist, skipping: ${dirPath}`);
     return false;
   }
 
