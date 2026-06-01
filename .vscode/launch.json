@@ -45,9 +45,11 @@
         "--repo",
         "git@github.com:iambpn/iambpn.git",
         "--prompt",
-        "'update its content'",
+        "'add the codver npm package with empty link in the README'",
         "--model",
-        "opencode-go/glm-5.1"
+        "opencode-go/glm-5.1",
+        "--config",
+        "codver.config.json"
       ]
     }
   ]

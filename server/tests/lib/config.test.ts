@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import fs from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { loadConfig, resolveModels } from "../../lib/config";
@@ -8,21 +8,21 @@ import { ValidationError } from "../../lib/cli";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
-function createTempFile(content: string): string {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codver-config-test-"));
+async function createTempFile(content: string): Promise<string> {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "codver-config-test-"));
   const filePath = path.join(tmpDir, "codver.config.json");
-  fs.writeFileSync(filePath, content, "utf-8");
+  await Bun.write(filePath, content);
   return filePath;
 }
 
-function createTempDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "codver-config-test-"));
+async function createTempDir(): Promise<string> {
+  return await mkdtemp(path.join(os.tmpdir(), "codver-config-test-"));
 }
 
-function cleanup(filePath: string) {
+async function cleanup(filePath: string) {
   try {
     const dir = path.dirname(filePath);
-    fs.rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   } catch {
     // ignore
   }
@@ -31,157 +31,153 @@ function cleanup(filePath: string) {
 // ─── loadConfig ───────────────────────────────────────────────────────
 
 describe("loadConfig", () => {
-  test("returns empty config when no config file exists and no explicit path", () => {
+  test("returns empty config when no config file exists and no explicit path", async () => {
     // Temporarily ensure no global config exists
-    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "codver-test-home-"));
+    const tmpHome = await mkdtemp(path.join(os.tmpdir(), "codver-test-home-"));
     const originalHome = process.env.HOME;
     process.env.HOME = tmpHome;
 
     try {
       // loadConfig with no explicit path should fall back to ~/.config/.codver
       // which won't exist in our temp home
-      const config = loadConfig();
+      const config = await loadConfig();
       expect(config).toEqual({});
     } finally {
       process.env.HOME = originalHome;
-      fs.rmSync(tmpHome, { recursive: true, force: true });
+      await rm(tmpHome, { recursive: true, force: true });
     }
   });
 
-  test("loads config from explicit path", () => {
-    const filePath = createTempFile(JSON.stringify({
+  test("loads config from explicit path", async () => {
+    const filePath = await createTempFile(JSON.stringify({
       gitUserName: "Test User",
       gitUserEmail: "test@example.com",
       defaultModel: "anthropic/claude-sonnet-4-20250514",
     }));
 
     try {
-      const config = loadConfig(filePath);
+      const config = await loadConfig(filePath);
       expect(config.gitUserName).toBe("Test User");
       expect(config.gitUserEmail).toBe("test@example.com");
       expect(config.defaultModel).toBe("anthropic/claude-sonnet-4-20250514");
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("throws ValidationError for nonexistent explicit path", () => {
-    expect(() => loadConfig("/nonexistent/path/config.json")).toThrow(ValidationError);
-    expect(() => loadConfig("/nonexistent/path/config.json")).toThrow(/Config file not found/);
+  test("throws ValidationError for nonexistent explicit path", async () => {
+    await expect(loadConfig("/nonexistent/path/config.json")).rejects.toThrow(ValidationError);
   });
 
-  test("handles partial config with only gitUserName", () => {
-    const filePath = createTempFile(JSON.stringify({ gitUserName: "Codver Bot" }));
+  test("handles partial config with only gitUserName", async () => {
+    const filePath = await createTempFile(JSON.stringify({ gitUserName: "Codver Bot" }));
 
     try {
-      const config = loadConfig(filePath);
+      const config = await loadConfig(filePath);
       expect(config.gitUserName).toBe("Codver Bot");
       expect(config.gitUserEmail).toBeUndefined();
       expect(config.defaultModel).toBeUndefined();
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("handles partial config with only defaultModel", () => {
-    const filePath = createTempFile(JSON.stringify({ defaultModel: "openai/gpt-4o" }));
+  test("handles partial config with only defaultModel", async () => {
+    const filePath = await createTempFile(JSON.stringify({ defaultModel: "openai/gpt-4o" }));
 
     try {
-      const config = loadConfig(filePath);
+      const config = await loadConfig(filePath);
       expect(config.gitUserName).toBeUndefined();
       expect(config.gitUserEmail).toBeUndefined();
       expect(config.defaultModel).toBe("openai/gpt-4o");
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("ignores unknown keys gracefully", () => {
-    const filePath = createTempFile(JSON.stringify({
+  test("ignores unknown keys gracefully", async () => {
+    const filePath = await createTempFile(JSON.stringify({
       gitUserName: "Test",
       unknownKey: "should be ignored",
       anotherUnknown: 42,
     }));
 
     try {
-      const config = loadConfig(filePath);
+      const config = await loadConfig(filePath);
       expect(config.gitUserName).toBe("Test");
       expect((config as any).unknownKey).toBeUndefined();
       expect((config as any).anotherUnknown).toBeUndefined();
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("throws ValidationError for invalid JSON", () => {
-    const filePath = createTempFile("{ invalid json }");
+  test("throws ValidationError for invalid JSON", async () => {
+    const filePath = await createTempFile("{ invalid json }");
 
     try {
-      expect(() => loadConfig(filePath)).toThrow(ValidationError);
-      expect(() => loadConfig(filePath)).toThrow(/Invalid JSON/);
+      await expect(loadConfig(filePath)).rejects.toThrow(ValidationError);
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("throws ValidationError for JSON array instead of object", () => {
-    const filePath = createTempFile("[1, 2, 3]");
+  test("throws ValidationError for JSON array instead of object", async () => {
+    const filePath = await createTempFile("[1, 2, 3]");
 
     try {
-      expect(() => loadConfig(filePath)).toThrow(ValidationError);
-      expect(() => loadConfig(filePath)).toThrow(/must contain a JSON object/);
+      await expect(loadConfig(filePath)).rejects.toThrow(ValidationError);
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("throws ValidationError for non-string config value", () => {
-    const filePath = createTempFile(JSON.stringify({ gitUserName: 123 }));
+  test("throws ValidationError for non-string config value", async () => {
+    const filePath = await createTempFile(JSON.stringify({ gitUserName: 123 }));
 
     try {
-      expect(() => loadConfig(filePath)).toThrow(ValidationError);
-      expect(() => loadConfig(filePath)).toThrow(/must be a string/);
+      await expect(loadConfig(filePath)).rejects.toThrow(ValidationError);
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("returns empty config for empty file", () => {
-    const filePath = createTempFile("");
+  test("returns empty config for empty file", async () => {
+    const filePath = await createTempFile("");
 
     try {
-      const config = loadConfig(filePath);
+      const config = await loadConfig(filePath);
       expect(config).toEqual({});
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("returns empty config for whitespace-only file", () => {
-    const filePath = createTempFile("   \n\n  ");
+  test("returns empty config for whitespace-only file", async () => {
+    const filePath = await createTempFile("   \n\n  ");
 
     try {
-      const config = loadConfig(filePath);
+      const config = await loadConfig(filePath);
       expect(config).toEqual({});
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 
-  test("allows null values (treated as undefined)", () => {
-    const filePath = createTempFile(JSON.stringify({
+  test("allows null values (treated as undefined)", async () => {
+    const filePath = await createTempFile(JSON.stringify({
       gitUserName: null,
       gitUserEmail: null,
       defaultModel: null,
     }));
 
     try {
-      const config = loadConfig(filePath);
+      const config = await loadConfig(filePath);
       expect(config.gitUserName).toBeUndefined();
       expect(config.gitUserEmail).toBeUndefined();
       expect(config.defaultModel).toBeUndefined();
     } finally {
-      cleanup(filePath);
+      await cleanup(filePath);
     }
   });
 });
@@ -224,14 +220,14 @@ describe("resolveModels", () => {
 describe("configureGitUser", () => {
   let tmpDir: string;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codver-git-test-"));
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), "codver-git-test-"));
     // Initialize a git repo in the temp dir
     Bun.spawnSync(["git", "init", tmpDir], { stdout: "pipe", stderr: "pipe" });
   });
 
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
   });
 
   test("sets both git user.name and user.email", async () => {

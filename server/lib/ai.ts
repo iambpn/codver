@@ -1,30 +1,32 @@
-import {
-  AuthStorage,
-  ModelRegistry,
-  createAgentSession,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
-import YAML from "yaml";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
-import type { CommitInfo } from "./types";
+import { loadPromptAsync } from "../prompts";
+import { BASE_COMPOSE_PATH, BASE_DOCKERFILE_PATH, BASE_PROTOTOOLS_PATH, DEV_DOCKERFILE } from "./paths";
 import { info, warn } from "./progress";
 import { getProviderEnvForCompose } from "./security";
-import { DEV_COMPOSE_FILE } from "./paths";
-import { loadPromptAsync } from "../prompts";
-
-let sessionCounter = 0;
+import type { CommitInfo } from "./types";
 
 const AI_TASK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+function handleSessionEvent(event: AgentSessionEvent, accumulator: { text: string }): void {
+  if (event.type === "message_update" && "assistantMessageEvent" in event) {
+    const msgEvent = event.assistantMessageEvent;
+    if (msgEvent.type === "text_delta") {
+      accumulator.text += msgEvent.delta;
+    }
+  }
+}
 
 async function runAiTask(
   prompt: string,
   cwd: string,
-  model: any, // eslint-disable-line @typescript-eslint/no-explicit-any -- pi Model type varies by provider
-  tools: string[] = ["read", "bash", "grep", "find", "ls"]
+  model: Model<Api>,
+  tools: string[] = ["read", "bash", "grep", "find", "ls"],
 ): Promise<string> {
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
-  sessionCounter++;
   const sessionManager = SessionManager.inMemory(cwd);
 
   const { session } = await createAgentSession({
@@ -36,148 +38,69 @@ async function runAiTask(
     tools,
   });
 
-  let result = "";
-  let settled = false;
-  session.subscribe((event: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-      result += event.assistantMessageEvent.delta;
-    }
+  const accumulator = { text: "" };
+  let disposed = false;
+
+  session.subscribe((event: AgentSessionEvent) => {
+    handleSessionEvent(event, accumulator);
   });
 
-  // Set up a timeout so we don't wait forever
+  const safeDispose = () => {
+    if (!disposed) {
+      disposed = true;
+      session.dispose();
+    }
+  };
+
+  let timerId: ReturnType<typeof setTimeout>;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        session.dispose();
-        reject(new Error(`AI task timed out after ${AI_TASK_TIMEOUT_MS / 1000}s`));
-      }
+    timerId = setTimeout(() => {
+      safeDispose();
+      reject(new Error(`AI task timed out after ${AI_TASK_TIMEOUT_MS / 1000}s`));
     }, AI_TASK_TIMEOUT_MS);
   });
 
-  const taskPromise = session.prompt(prompt)
-    .catch((err: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-      if (!settled) {
-        settled = true;
-        throw err;
-      }
-    })
-    .finally(() => {
-      settled = true;
-      session.dispose();
-    });
+  const taskPromise = session.prompt(prompt);
 
   try {
     await Promise.race([taskPromise, timeoutPromise]);
-  } catch (err) {
-    if (!settled) {
-      session.dispose();
-    }
-    warn(`AI task execution had issues: ${err}`);
+  } finally {
+    clearTimeout(timerId!);
+    safeDispose();
   }
 
-  return result;
+  return accumulator.text;
 }
 
-function generateMinimalDevCompose(provider: string): string {
+async function copyDockerfile(cwd: string): Promise<void> {
+  const baseDockerfile = await Bun.file(BASE_DOCKERFILE_PATH).text();
+  const dockerfilePath = path.join(cwd, DEV_DOCKERFILE);
+  await Bun.write(dockerfilePath, baseDockerfile);
+  info("Dockerfile written from base template (no AI modifications).");
+}
+
+async function generateComposeFile(cwd: string, provider: string): Promise<void> {
   const envVars = getProviderEnvForCompose(provider);
   const envVarLines = envVars.map((v: string) => `      - ${v}=\${${v}}`).join("\n");
 
-  return `services:
-  pi-agent:
-    image: oven/bun:1
-    working_dir: /workspace
-    volumes:
-      - ./:/workspace:rw
-      - ./bunfig.toml:/root/.bunfig.toml:ro
-    command: sh -c "bun install --frozen-lockfile 2>/dev/null || true; bun add -g @earendil-works/pi-coding-agent && pi --version"
-    environment:
-${envVarLines}
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    networks:
-      - dev-network
-
-networks:
-  dev-network:
-    driver: bridge
-    internal: true
-`;
+  const baseCompose = await Bun.file(BASE_COMPOSE_PATH).text();
+  const baseComposeRendered = baseCompose.replace("{{envVarLines}}", envVarLines);
+  await Bun.write(path.join(cwd, "docker-compose.dev.yml"), baseComposeRendered);
 }
 
-export async function generateDevCompose(
-  cwd: string,
-  model: any, // eslint-disable-line @typescript-eslint/no-explicit-any
-  provider: string
-): Promise<void> {
-  info("Generating docker-compose.dev.yml using AI (agent writes file directly)...");
-
-  const envVars = getProviderEnvForCompose(provider);
-  const envVarLines = envVars.map((v: string) => `      - ${v}=\${${v}}`).join("\n");
-
-  const prompt = await loadPromptAsync("dev-compose", { envVarLines });
-
-  // The agent uses 'write' tool to create the file directly
-  await runAiTask(prompt, cwd, model, ["read", "bash", "write"]);
-
-  // Verify the file was created and is valid YAML
-  const composePath = path.join(cwd, DEV_COMPOSE_FILE);
-
-  try {
-    const content = await Bun.file(composePath).text();
-    if (!content || content.trim().length === 0) {
-      warn("docker-compose.dev.yml was not created by the agent. Falling back to minimal compose file.");
-      await Bun.write(composePath, generateMinimalDevCompose(provider));
-      return;
-    }
-
-    // Try to parse it as YAML to validate
-    try {
-      const parsed = YAML.parse(content);
-      if (!parsed || typeof parsed !== "object" || !parsed.services) {
-        warn("AI-generated YAML has no 'services' key. Overwriting with minimal compose file.");
-        await Bun.write(composePath, generateMinimalDevCompose(provider));
-        return;
-      }
-      // Validate the pi-agent service exists
-      if (!parsed.services["pi-agent"]) {
-        warn("AI-generated compose is missing 'pi-agent' service. Overwriting with minimal compose file.");
-        await Bun.write(composePath, generateMinimalDevCompose(provider));
-        return;
-      }
-    } catch {
-      warn("AI-generated YAML is invalid. Overwriting with minimal compose file.");
-      await Bun.write(composePath, generateMinimalDevCompose(provider));
-      return;
-    }
-
-    info("docker-compose.dev.yml verified successfully.");
-  } catch {
-    warn("docker-compose.dev.yml was not found. Falling back to minimal compose file.");
-    await Bun.write(composePath, generateMinimalDevCompose(provider));
-  }
+async function copyPrototools(cwd: string): Promise<void> {
+  const basePrototools = await Bun.file(BASE_PROTOTOOLS_PATH).text();
+  await Bun.write(path.join(cwd, ".prototools.base"), basePrototools);
 }
 
-export async function modifyGitignore(cwd: string, model: any): Promise<string> { // eslint-disable-line @typescript-eslint/no-explicit-any
-  info("Modifying .gitignore using AI...");
-
-  const prompt = await loadPromptAsync("gitignore");
-
-  await runAiTask(prompt, cwd, model, ["read", "write", "bash"]);
-
-  // Read the result using Bun.file()
-  try {
-    const gitignorePath = `${cwd}/.gitignore`;
-    const content = await Bun.file(gitignorePath).text();
-    return content;
-  } catch {
-    return "";
-  }
+export async function generateDevCompose(cwd: string, provider: string): Promise<void> {
+  info("Generating docker-compose.dev.yml using AI (agent modifies base template)...");
+  await copyDockerfile(cwd);
+  await generateComposeFile(cwd, provider);
+  await copyPrototools(cwd);
 }
 
-export async function generateBranchName(prompt: string, model: any): Promise<string> { // eslint-disable-line @typescript-eslint/no-explicit-any
+export async function generateBranchName(prompt: string, model: Model<Api>): Promise<string> {
   info("Generating branch name from prompt using AI...");
 
   const branchPrompt = await loadPromptAsync("branch-name", { prompt: prompt.slice(0, 300) });
@@ -185,7 +108,8 @@ export async function generateBranchName(prompt: string, model: any): Promise<st
   const result = await runAiTask(branchPrompt, process.cwd(), model, []);
 
   // Clean up the branch name
-  let branchName = result.trim()
+  let branchName = result
+    .trim()
     .toLowerCase()
     .replace(/[^a-z0-9\-]/g, "-")
     .replace(/-+/g, "-")
@@ -199,20 +123,11 @@ export async function generateBranchName(prompt: string, model: any): Promise<st
   return `codver/${branchName}`;
 }
 
-export async function generateCommitMessage(
-  cwd: string,
-  model: any, // eslint-disable-line @typescript-eslint/no-explicit-any
-  diffOutput: string
-): Promise<CommitInfo> {
+export async function generateCommitMessage(cwd: string, model: Model<Api>, diffOutput: string): Promise<CommitInfo> {
   info("Generating commit message using AI...");
 
   const taskPrompt = await loadPromptAsync("commit-message", { diffOutput: diffOutput.slice(0, 8000) });
-  const result = await runAiTask(
-    taskPrompt,
-    cwd,
-    model,
-    ["read", "bash"]
-  );
+  const result = await runAiTask(taskPrompt, cwd, model, ["read", "bash"]);
 
   // Parse title and body
   const lines = result.trim().split("\n");
@@ -233,9 +148,9 @@ export async function generateCommitMessage(
 
 export async function generatePRDescription(
   cwd: string,
-  model: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+  model: Model<Api>,
   commitMessages: string,
-  diffSummary: string
+  diffSummary: string,
 ): Promise<CommitInfo> {
   info("Generating PR description using AI...");
 
@@ -243,11 +158,7 @@ export async function generatePRDescription(
     commitMessages,
     diffSummary: diffSummary.slice(0, 4000),
   });
-  const result = await runAiTask(
-    taskPrompt,
-    cwd,
-    model
-  );
+  const result = await runAiTask(taskPrompt, cwd, model);
 
   const lines = result.trim().split("\n");
   let title = lines[0] || "Automated changes by codver";
@@ -261,9 +172,9 @@ export async function generatePRDescription(
 
 export async function generateNoUpdateDoc(
   cwd: string,
-  model: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+  model: Model<Api>,
   agentOutput: string,
-  taskPrompt: string
+  taskPrompt: string,
 ): Promise<string> {
   info("Generating codver-no-update.md using AI...");
 
@@ -271,14 +182,35 @@ export async function generateNoUpdateDoc(
     taskPrompt: taskPrompt.slice(0, 2000),
     agentOutput: agentOutput.slice(0, 6000),
   });
-  const result = await runAiTask(
-    promptText,
-    cwd,
-    model
-  );
+  const result = await runAiTask(promptText, cwd, model);
 
   let content = result.trim();
   content = content.replace(/^```markdown?\n?/i, "").replace(/\n?```\s*$/i, "");
 
   return content;
+}
+
+export async function generateDependencyInstallCommand(cwd: string, model: Model<Api>): Promise<string> {
+  const prompt = await loadPromptAsync("dependency-install");
+  const result = await runAiTask(prompt, cwd, model, ["read"]);
+
+  try {
+    const command = result
+      .trim()
+      .split("\n")
+      .find((line) => line.toLowerCase().startsWith("command:"));
+
+    if (!command) {
+      warn(`No command found in AI response, full response was:\n${result}`);
+      return "";
+    }
+    return command.split(":").slice(1).join(":").trim();
+  } catch {
+    // If parsing fails, return empty string to indicate no command could be determined
+    return "";
+  }
+}
+
+export function buildModelName(model: Model<Api>): string {
+  return `${model.provider}/${model.name}`;
 }

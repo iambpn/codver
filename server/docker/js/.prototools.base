@@ -1,0 +1,20 @@
+# ─── Codver Base .prototools ────────────────────────────────────────
+#
+# These are the baseline tools installed into the codver base Docker image.
+# The LLM can add or change tool versions in a project-specific override,
+# but this file provides a reliable starting point.
+#
+# Tools:
+#   bun   — required by pi-coding-agent
+#   node  — many JS/TS projects need this
+# ─────────────────────────────────────────────────────────────────────
+
+bun = "1.3.13"
+node = "24.15.0"
+npm = "bundled"
+
+[settings]
+auto-install = true
+
+[tools.node]
+bundled-npm = true

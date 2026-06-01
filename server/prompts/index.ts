@@ -1,6 +1,7 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const PROMPTS_DIR = path.dirname(import.meta.url.replace("file://", ""));
+const PROMPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Load a prompt template asynchronously and interpolate {{variable}} placeholders

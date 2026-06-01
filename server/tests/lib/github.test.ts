@@ -1,7 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
 import path from "node:path";
 import os from "node:os";
-import fs from "node:fs";
 import {
   cloneRepo,
   getDefaultBranch,

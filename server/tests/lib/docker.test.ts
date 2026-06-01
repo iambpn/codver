@@ -116,7 +116,7 @@ describe("composeRunAgent", () => {
     }));
 
     Bun.spawnSync = mock((cmd: string[], options?: any) => {
-      if (cmd.includes("run") && cmd.includes("pi-agent")) {
+      if (cmd.includes("exec") && cmd.includes("pi-agent")) {
         return {
           exitCode: 0,
           stdout: Buffer.from("Agent completed successfully"),
@@ -133,7 +133,6 @@ describe("composeRunAgent", () => {
       "anthropic/claude-sonnet-4-20250514"
     );
 
-    // Should have written .codver-plan
     expect(writtenFiles[path.join("/tmp/test-repo", ".codver-plan")]).toBe("Add unit tests");
 
     expect(result.exitCode).toBe(0);
@@ -149,7 +148,7 @@ describe("composeRunAgent", () => {
     }));
 
     Bun.spawnSync = mock((cmd: string[], options?: any) => {
-      if (cmd.includes("run") && cmd.includes("pi-agent")) {
+      if (cmd.includes("exec") && cmd.includes("pi-agent")) {
         return {
           exitCode: 1,
           stdout: Buffer.from(""),
@@ -170,7 +169,7 @@ describe("composeRunAgent", () => {
     expect(result.output).toContain("Agent failed");
   });
 
-  test("shell-escapes model string to prevent injection", async () => {
+  test("passes model via env var to prevent shell injection", async () => {
     const spawnCalls: string[][] = [];
     (Bun as any).write = mock(async (filePath: string, content: string) => content.length);
     (Bun as any).file = mock((filePath: string) => ({
@@ -190,14 +189,16 @@ describe("composeRunAgent", () => {
       "model-with-o'ther-chars"
     );
 
-    // Find the docker compose run call
-    const runCall = spawnCalls.find(c => c.includes("run") && c.includes("pi-agent"));
+    const runCall = spawnCalls.find(c => c.includes("exec") && c.includes("pi-agent"));
     expect(runCall).toBeDefined();
-    // The model string should have single quotes escaped
+    // The model string should be passed via an env var, not shell-interpolated
+    const envFlag = runCall?.[runCall.indexOf("-e") + 1];
+    expect(envFlag).toBeDefined();
+    expect(envFlag).toContain("MODEL=model-with-o'ther-chars");
+    // The command should use $MODEL instead of direct interpolation
     const commandArg = runCall?.[runCall.length - 1];
-    expect(commandArg).toBeDefined();
-    // Should contain the escaped model string
-    expect(commandArg).toContain("model-with-o");
+    expect(commandArg).toContain("$MODEL");
+    expect(commandArg).not.toContain("model-with-o");
   });
 
   test("does not pass explicit env to docker compose", async () => {
@@ -210,7 +211,7 @@ describe("composeRunAgent", () => {
     }));
 
     Bun.spawnSync = mock((cmd: string[], options?: any) => {
-      if (cmd.includes("run") && cmd.includes("pi-agent")) {
+      if (cmd.includes("exec") && cmd.includes("pi-agent")) {
         capturedOptions = options;
       }
       return { exitCode: 0, stdout: Buffer.from(""), stderr: Buffer.from(""), success: true };
@@ -222,7 +223,8 @@ describe("composeRunAgent", () => {
       "anthropic/claude-sonnet-4-20250514"
     );
 
-    // Env vars should NOT be explicitly passed — they come from .env file
+    // Host env vars should NOT be explicitly passed — API keys come from .env file
+    // The MODEL env var IS passed via -e flag for injection-safe model passing
     expect(capturedOptions.env).toBeUndefined();
   });
 
@@ -235,7 +237,7 @@ describe("composeRunAgent", () => {
     }));
 
     Bun.spawnSync = mock((cmd: string[], options?: any) => {
-      if (cmd.includes("run")) {
+      if (cmd.includes("exec")) {
         return { exitCode: null, stdout: Buffer.from(""), stderr: Buffer.from("error"), success: false };
       }
       return { exitCode: 0, stdout: Buffer.from(""), stderr: Buffer.from(""), success: true };

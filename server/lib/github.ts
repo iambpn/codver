@@ -1,8 +1,30 @@
-import fs from "node:fs";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { CODVER_HOME_DIR, DEV_FILES, PR_BODY_FILE, getRepoDir } from "./paths";
-import { info, RED, RESET, spinningStep, step, success, YELLOW } from "./progress";
+import { CODVER_HOME_DIR, DEV_FILES, GIT_STAGING_EXCLUSIONS, PR_BODY_FILE, getRepoDir } from "./paths";
+import { error, info, spinningStep, step, success, warn } from "./progress";
 import type { RepoInfo } from "./types";
+
+/**
+ * Get the currently authenticated GitHub user's login name using `gh api user`.
+ * Returns undefined if gh is not authenticated or the call fails.
+ */
+export async function getAuthenticatedUser(): Promise<string | undefined> {
+  try {
+    const result = Bun.spawnSync(["gh", "api", "user", "--jq", ".login"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (result.exitCode === 0) {
+      const login = result.stdout.toString().trim();
+      if (login) {
+        return login;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function configureGitUser(repoDir: string, config: { gitUserName?: string; gitUserEmail?: string }): Promise<void> {
   if (config.gitUserName) {
@@ -30,8 +52,7 @@ export async function configureGitUser(repoDir: string, config: { gitUserName?: 
 
 export async function cloneRepo(repoUrl: string): Promise<RepoInfo> {
   return spinningStep("Cloning repository", async () => {
-    // Ensure ~/.codver exists
-    fs.mkdirSync(CODVER_HOME_DIR, { recursive: true });
+    await mkdir(CODVER_HOME_DIR, { recursive: true });
 
     // Extract repo name from URL
     const repoName = extractRepoName(repoUrl);
@@ -42,7 +63,7 @@ export async function cloneRepo(repoUrl: string): Promise<RepoInfo> {
     const cloneResult = Bun.spawnSync(["gh", "repo", "clone", repoUrl, repoDir], { stdout: "pipe", stderr: "pipe" });
 
     if (cloneResult.exitCode !== 0) {
-      const errMsg = (cloneResult.stderr || cloneResult.stdout).toString();
+      const errMsg = cloneResult.stderr.toString() || cloneResult.stdout.toString();
       throw new Error(`Failed to clone repository: ${errMsg}`);
     }
 
@@ -106,7 +127,11 @@ export async function getDefaultBranch(repoDir: string): Promise<string> {
 
   const output = result.stdout.toString();
   const match = output.match(/HEAD branch:\s*(\S+)/);
-  return match?.[1] ?? "main";
+  if (match && match[1]) {
+    return match[1];
+  } else {
+    return "main";
+  }
 }
 
 export async function setupBranch(repoDir: string, fromBranch: string | undefined, newBranch: string): Promise<void> {
@@ -165,89 +190,116 @@ export async function stageAndCommit(repoDir: string, message: string): Promise<
   });
 }
 
-export async function hasCodeChanges(repoDir: string): Promise<boolean> {
-  // Check all tracked file changes, then filter out dev files
+export async function stageCodeChanges(cwd: string, commitTitle: string, commitBody: string): Promise<void> {
+  await step("Staging and committing code changes", async () => {
+    const exclusionArgs = GIT_STAGING_EXCLUSIONS.map((pattern) => `:!${pattern}`);
+    const addResult = Bun.spawnSync(["git", "-C", cwd, "add", "-A", "--", ".", ...exclusionArgs], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    if (addResult.exitCode !== 0) {
+      const fallbackResult = Bun.spawnSync(["git", "-C", cwd, "add", "-A"], { stdout: "pipe", stderr: "pipe" });
+      if (fallbackResult.exitCode !== 0) {
+        warn(`Git add fallback also failed: ${fallbackResult.stderr.toString() || fallbackResult.stdout.toString()}`);
+      }
+    }
+
+    const commitResult = Bun.spawnSync(["git", "-C", cwd, "commit", "-m", commitTitle, "-m", commitBody], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    if (commitResult.exitCode !== 0) {
+      const errMsg = commitResult.stderr.toString();
+      if (!errMsg.includes("nothing to commit") && !errMsg.includes("no changes")) {
+        throw new Error(`Commit failed: ${errMsg}`);
+      }
+    }
+
+    success(`Changes committed: ${commitTitle}`);
+  });
+}
+
+export async function stageSingleFileAndCommit(cwd: string, filePath: string, commitMessage: string): Promise<void> {
+  const addResult = Bun.spawnSync(["git", "-C", cwd, "add", filePath], { stdout: "pipe", stderr: "pipe" });
+  if (addResult.exitCode !== 0) {
+    warn(`Failed to stage ${filePath}: ${addResult.stderr.toString()}`);
+  }
+
+  const commitResult = Bun.spawnSync(["git", "-C", cwd, "commit", "-m", commitMessage], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (commitResult.exitCode !== 0) {
+    warn(`Commit had issues: ${commitResult.stderr.toString()}`);
+  }
+}
+
+function getGitChanges(repoDir: string): { diffStat: string; diffLines: string[]; untrackedFiles: string[] } {
   const diffResult = Bun.spawnSync(["git", "-C", repoDir, "diff", "--stat", "HEAD"], {
     stdout: "pipe",
     stderr: "pipe",
   });
-
-  // Check for untracked files (excluding dev files)
-  const untrackedResult = Bun.spawnSync(["git", "-C", repoDir, "ls-files", "--others", "--exclude-standard"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const diffOutput = diffResult.stdout.toString().trim();
-  const meaningfulDiffLines = diffOutput
-    .split("\n")
-    .filter((line: string) => line.length > 0 && !isDevFileFromDiffLine(line));
-
-  const untrackedFiles = untrackedResult.stdout
-    .toString()
-    .trim()
-    .split("\n")
-    .filter((f: string) => f.length > 0 && !isDevFile(f));
-
-  return meaningfulDiffLines.length > 0 || untrackedFiles.length > 0;
-}
-
-/**
- * Check if a git diff --stat line refers to a dev-only file.
- * Diff stat lines look like: " path/to/file |  3 +-"
- */
-function isDevFileFromDiffLine(line: string): boolean {
-  // Extract the filename from the diff stat line
-  const match = line.match(/^\s*(\S+)/);
-  if (!match) return false;
-  const filepath = match[1]!;
-  return isDevFile(filepath);
-}
-
-export async function getChangedFiles(repoDir: string): Promise<string> {
-  // Get diff stat for all changes, then filter out dev files
-  const diffResult = Bun.spawnSync(["git", "-C", repoDir, "diff", "--stat", "HEAD"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  // Get untracked files
   const untrackedResult = Bun.spawnSync(["git", "-C", repoDir, "ls-files", "--others", "--exclude-standard"], {
     stdout: "pipe",
     stderr: "pipe",
   });
 
   const diffStat = diffResult.stdout.toString().trim();
-  const untracked = untrackedResult.stdout
-    .toString()
-    .trim()
+  const diffLines = diffStat
     .split("\n")
-    .filter((f: string) => f.length > 0 && !isDevFile(f));
-
-  const parts: string[] = [];
-  if (diffStat) parts.push(diffStat);
-  if (untracked.length > 0) {
-    parts.push(`\nUntracked files:\n${untracked.join("\n")}`);
-  }
-  return parts.join("\n");
-}
-
-export async function getFullDiff(repoDir: string): Promise<string> {
-  const diffResult = Bun.spawnSync(["git", "-C", repoDir, "diff", "HEAD"], { stdout: "pipe", stderr: "pipe" });
-
-  const untrackedResult = Bun.spawnSync(["git", "-C", repoDir, "ls-files", "--others", "--exclude-standard"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const diff = diffResult.stdout.toString();
+    .filter((line: string) => line.length > 0 && !isDevFileFromDiffLine(line));
   const untrackedFiles = untrackedResult.stdout
     .toString()
     .trim()
     .split("\n")
     .filter((f: string) => f.length > 0 && !isDevFile(f));
 
-  let fullDiff = diff;
+  return { diffStat, diffLines, untrackedFiles };
+}
+
+export async function hasCodeChanges(repoDir: string): Promise<boolean> {
+  const { diffLines, untrackedFiles } = getGitChanges(repoDir);
+  return diffLines.length > 0 || untrackedFiles.length > 0;
+}
+
+/**
+ * Check if a git diff --stat line refers to a dev-only file.
+ * Diff stat lines look like: " path/to/file |  3 +-"
+ * Renamed files show: " old_name -> new_name |  3 +-"
+ */
+function isDevFileFromDiffLine(line: string): boolean {
+  // Git diff stat lines look like: " path/to/file | 3 +-"
+  // Renamed files show: " old_name => new_name | 3 +-" or " {old => new}/path | 3 +-"
+  const pipeIndex = line.indexOf("|");
+  const filePart = pipeIndex >= 0 ? line.slice(0, pipeIndex).trim() : line.trim();
+  if (!filePart) return false;
+  if (filePart.includes("->")) {
+    const parts = filePart.split("->");
+    for (const part of parts) {
+      if (isDevFile(part.trim())) return true;
+    }
+    return false;
+  }
+  return isDevFile(filePart);
+}
+
+export async function getChangedFiles(repoDir: string): Promise<string> {
+  const { diffStat, untrackedFiles } = getGitChanges(repoDir);
+  const parts: string[] = [];
+  if (diffStat) parts.push(diffStat);
+  if (untrackedFiles.length > 0) {
+    parts.push(`\nUntracked files:\n${untrackedFiles.join("\n")}`);
+  }
+  return parts.join("\n");
+}
+
+export async function getFullDiff(repoDir: string): Promise<string> {
+  const diffResult = Bun.spawnSync(["git", "-C", repoDir, "diff", "HEAD"], { stdout: "pipe", stderr: "pipe" });
+  const { untrackedFiles } = getGitChanges(repoDir);
+
+  let fullDiff = diffResult.stdout.toString();
   for (const file of untrackedFiles) {
     try {
       const content = await Bun.file(path.join(repoDir, file)).text();
@@ -303,7 +355,7 @@ export async function createPR(
 
     // Clean up the temp file
     try {
-      fs.unlinkSync(bodyFile);
+      await Bun.file(bodyFile).unlink();
     } catch {
       // ignore
     }
@@ -311,12 +363,11 @@ export async function createPR(
     if (result.exitCode !== 0) {
       const errMsg = result.stderr.toString();
       // Print manual instructions so the user can create the PR themselves
-      console.error(`
-${RED}Failed to create PR automatically: ${errMsg}${RESET}`);
-      console.error(`${YELLOW}You can create the PR manually:${RESET}`);
-      console.error(`  cd ${repoDir}`);
-      console.error(`  git push -u origin ${newBranch}`);
-      console.error(`  gh pr create --title "${title}" --base ${baseBranch} --head ${newBranch}`);
+      error(`Failed to create PR automatically: ${errMsg}`);
+      error(`You can create the PR manually:`);
+      error(`  cd ${repoDir}`);
+      error(`  git push -u origin ${newBranch}`);
+      error(`  gh pr create --title "${title}" --base ${baseBranch} --head ${newBranch}`);
       throw new Error(`Failed to create PR: ${errMsg}`);
     }
 
@@ -325,3 +376,5 @@ ${RED}Failed to create PR automatically: ${errMsg}${RESET}`);
     return prUrl;
   });
 }
+
+

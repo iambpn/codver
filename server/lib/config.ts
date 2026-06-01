@@ -1,7 +1,7 @@
 import path from "node:path";
-import fs from "node:fs";
 import { getGlobalConfigPath } from "./paths";
 import { ValidationError } from "./cli";
+import { warn } from "./progress";
 import type { CodverConfig } from "./types";
 
 /** Known top-level keys allowed in the config JSON. */
@@ -16,11 +16,12 @@ const KNOWN_CONFIG_KEYS = new Set(["gitUserName", "gitUserEmail", "defaultModel"
  *
  * Returns `null` if neither file exists (which is fine — config is optional).
  */
-function resolveConfigPath(explicitPath?: string): string | null {
+async function resolveConfigPath(explicitPath?: string): Promise<string | null> {
   if (explicitPath) {
     // --config was provided — always resolve relative to cwd
     const resolved = path.resolve(explicitPath);
-    if (!fs.existsSync(resolved)) {
+    const exists = await Bun.file(resolved).exists();
+    if (!exists) {
       throw new ValidationError(
         `Config file not found: ${explicitPath}\n` +
         `  Resolved to: ${resolved}\n` +
@@ -33,7 +34,8 @@ function resolveConfigPath(explicitPath?: string): string | null {
   // No --config flag — check global location
   // Resolve dynamically to support HOME override in tests
   const configPath = getGlobalConfigPath();
-  if (fs.existsSync(configPath)) {
+  const exists = await Bun.file(configPath).exists();
+  if (exists) {
     return configPath;
   }
 
@@ -48,8 +50,8 @@ function resolveConfigPath(explicitPath?: string): string | null {
  * @returns Parsed CodverConfig (empty object if no config file exists)
  * @throws ValidationError if the config file exists but contains invalid JSON or unexpected structure
  */
-export function loadConfig(explicitPath?: string): CodverConfig {
-  const configPath = resolveConfigPath(explicitPath);
+export async function loadConfig(explicitPath?: string): Promise<CodverConfig> {
+  const configPath = await resolveConfigPath(explicitPath);
 
   if (configPath === null) {
     return {};
@@ -57,7 +59,7 @@ export function loadConfig(explicitPath?: string): CodverConfig {
 
   let raw: string;
   try {
-    raw = fs.readFileSync(configPath, "utf-8");
+    raw = await Bun.file(configPath).text();
   } catch (err) {
     throw new ValidationError(`Cannot read config file: ${configPath}\n  ${err}`);
   }
@@ -109,8 +111,8 @@ export function loadConfig(explicitPath?: string): CodverConfig {
 
   if (unknownKeys.length > 0) {
     // Warn but don't error — forward-compatible
-    console.warn(
-      `Warning: Unknown config keys in ${configPath}: ${unknownKeys.join(", ")}\n` +
+    warn(
+      `Unknown config keys in ${configPath}: ${unknownKeys.join(", ")}\n` +
       `  Known keys: ${[...KNOWN_CONFIG_KEYS].join(", ")}`
     );
   }
@@ -140,10 +142,8 @@ export function resolveModels(
     );
   }
 
-  // generativeModel: prefer config.defaultModel, fall back to --model
-  // agentModel:      prefer --model, fall back to config.defaultModel
-  return {
-    generativeModel: configDefaultModel || cliModel!,
-    agentModel: cliModel || configDefaultModel!,
-  };
+  const generativeModel = configDefaultModel || cliModel || "";
+  const agentModel = cliModel || configDefaultModel || "";
+
+  return { generativeModel, agentModel };
 }

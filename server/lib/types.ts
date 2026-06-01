@@ -1,9 +1,11 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
+
 export interface CodverConfig {
   /** Git user name to set in the cloned repo (local config only). */
   gitUserName?: string;
   /** Git user email to set in the cloned repo (local config only). */
   gitUserEmail?: string;
-  /** Default model for generative AI tasks on the host (branch naming, commit messages, PR descriptions, dev-compose, gitignore).
+  /** Default model for generative AI tasks on the host (branch naming, commit messages, PR descriptions, dev-compose).
    *  Falls back to --model if not set; used as the generative model when both --model and defaultModel are specified. */
   defaultModel?: string;
 }
@@ -34,14 +36,8 @@ export interface CommitInfo {
   body: string;
 }
 
-export interface PRInfo {
-  title: string;
-  body: string;
-  url: string;
-}
-
 export interface ModelInfo {
-  model: any; // eslint-disable-line @typescript-eslint/no-explicit-any -- pi Model type varies by provider
+  model: Model<Api>;
   provider: string;
 }
 
@@ -76,5 +72,3 @@ export const FALLBACK_ENV_VARS = [
   "OPENROUTER_API_KEY",
   "OPENCODE_API_KEY",
 ];
-
-export { GITIGNORE_ENTRIES } from "./paths";

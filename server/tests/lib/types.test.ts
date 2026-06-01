@@ -2,8 +2,8 @@ import { test, expect, describe } from "bun:test";
 import {
   PROVIDER_ENV_MAP,
   FALLBACK_ENV_VARS,
-  GITIGNORE_ENTRIES,
 } from "../../lib/types";
+import { GITIGNORE_ENTRIES } from "../../lib/paths";
 
 describe("PROVIDER_ENV_MAP", () => {
   test("has entries for all expected providers", () => {
@@ -87,8 +87,8 @@ describe("FALLBACK_ENV_VARS", () => {
 });
 
 describe("GITIGNORE_ENTRIES", () => {
-  test("contains exactly 5 entries (1 comment + 4 file patterns)", () => {
-    expect(GITIGNORE_ENTRIES).toHaveLength(5);
+  test("contains exactly 7 entries (1 comment + 6 file patterns)", () => {
+    expect(GITIGNORE_ENTRIES).toHaveLength(7);
   });
 
   test("starts with a comment header", () => {
@@ -97,9 +97,11 @@ describe("GITIGNORE_ENTRIES", () => {
 
   test("contains expected file patterns", () => {
     expect(GITIGNORE_ENTRIES).toContain("docker-compose.dev.yml");
+    expect(GITIGNORE_ENTRIES).toContain("Dockerfile");
     expect(GITIGNORE_ENTRIES).toContain("bunfig.toml");
     expect(GITIGNORE_ENTRIES).toContain(".env");
     expect(GITIGNORE_ENTRIES).toContain(".codver-plan");
+    expect(GITIGNORE_ENTRIES).toContain(".prototools.base");
   });
 
   test("comment header is first entry", () => {

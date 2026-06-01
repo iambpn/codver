@@ -10,6 +10,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "latest",
     "@earendil-works/pi-coding-agent": "latest",
+    "commander": "^14.0.3",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

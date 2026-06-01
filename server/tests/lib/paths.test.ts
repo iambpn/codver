@@ -1,7 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import path from "node:path";
 import os from "node:os";
-import fs from "node:fs";
 import {
   CODVER_HOME_DIR,
   CODVER_CONFIG_PATH,
@@ -16,6 +15,7 @@ import {
   GITIGNORE_ENTRIES,
   CODVER_MANAGED_DIRS,
   CODVER_REPO_PATTERNS,
+  GIT_STAGING_EXCLUSIONS,
   getRepoDir,
   ensureConfigDir,
 } from "../../lib/paths";
@@ -25,8 +25,8 @@ describe("path constants", () => {
     expect(CODVER_HOME_DIR).toBe(path.join(os.homedir(), ".codver"));
   });
 
-  test("CODVER_CONFIG_PATH points to ~/.config/.codver", () => {
-    expect(CODVER_CONFIG_PATH).toBe(path.join(os.homedir(), ".config", ".codver"));
+  test("CODVER_CONFIG_PATH points to ~/.config/codver/codver.config.json", () => {
+    expect(CODVER_CONFIG_PATH).toBe(path.join(os.homedir(), ".config", "codver", "codver.config.json"));
   });
 
   test("getGlobalConfigPath respects HOME env override", () => {
@@ -34,7 +34,7 @@ describe("path constants", () => {
     process.env.HOME = "/tmp/test-home";
     try {
       const configPath = getGlobalConfigPath();
-      expect(configPath).toBe(path.join("/tmp/test-home", ".config", ".codver"));
+      expect(configPath).toBe(path.join("/tmp/test-home", ".config", "codver", "codver.config.json"));
     } finally {
       process.env.HOME = originalHome;
     }
@@ -71,15 +71,17 @@ describe("path constants", () => {
 });
 
 describe("DEV_FILES", () => {
-  test("contains exactly the 4 core dev files", () => {
-    expect(DEV_FILES).toHaveLength(4);
+  test("contains the expected dev files", () => {
+    expect(DEV_FILES).toHaveLength(6);
   });
 
   test("includes all expected dev files", () => {
     expect(DEV_FILES).toContain("docker-compose.dev.yml");
+    expect(DEV_FILES).toContain("Dockerfile");
     expect(DEV_FILES).toContain("bunfig.toml");
     expect(DEV_FILES).toContain(".env");
     expect(DEV_FILES).toContain(".codver-plan");
+    expect(DEV_FILES).toContain(".prototools.base");
   });
 
   test("all entries are plain filenames (no path separators)", () => {
@@ -92,7 +94,7 @@ describe("DEV_FILES", () => {
 
 describe("GITIGNORE_ENTRIES", () => {
   test("starts with comment header followed by all DEV_FILES", () => {
-    expect(GITIGNORE_ENTRIES).toHaveLength(5);
+    expect(GITIGNORE_ENTRIES).toHaveLength(7);
     expect(GITIGNORE_ENTRIES[0]).toBe("# Codver dev environment");
     for (const df of DEV_FILES) {
       expect(GITIGNORE_ENTRIES).toContain(df);
@@ -124,5 +126,23 @@ describe("CODVER_REPO_PATTERNS", () => {
 
   test("is a superset of DEV_FILES", () => {
     expect(CODVER_REPO_PATTERNS.length).toBeGreaterThan(DEV_FILES.length);
+  });
+});
+
+describe("GIT_STAGING_EXCLUSIONS", () => {
+  test("includes all CODVER_REPO_PATTERNS", () => {
+    for (const pattern of CODVER_REPO_PATTERNS) {
+      expect(GIT_STAGING_EXCLUSIONS).toContain(pattern);
+    }
+  });
+
+  test("includes standard .gitignore patterns", () => {
+    expect(GIT_STAGING_EXCLUSIONS).toContain("node_modules");
+    expect(GIT_STAGING_EXCLUSIONS).toContain(".env.development.local");
+    expect(GIT_STAGING_EXCLUSIONS).toContain(".DS_Store");
+  });
+
+  test("is a superset of CODVER_REPO_PATTERNS", () => {
+    expect(GIT_STAGING_EXCLUSIONS.length).toBeGreaterThan(CODVER_REPO_PATTERNS.length);
   });
 });

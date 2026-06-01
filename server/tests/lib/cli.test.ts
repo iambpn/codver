@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
 import {
   parseCliArgs,
   sanitizeBranchName,
@@ -31,18 +31,8 @@ describe("ValidationError", () => {
 // ─── parseCliArgs ─────────────────────────────────────────────────────
 
 describe("parseCliArgs", () => {
-  let originalExit: typeof process.exit;
-
-  beforeEach(() => {
-    originalExit = process.exit;
-  });
-
-  afterEach(() => {
-    process.exit = originalExit;
-  });
-
   test("parses all required arguments correctly", () => {
-    const result = parseCliArgsWithArgs([
+    const result = parseCliArgs([
       "--repo", "https://github.com/owner/repo",
       "--model", "anthropic/claude-sonnet-4-20250514",
       "--prompt", "Add unit tests",
@@ -53,7 +43,7 @@ describe("parseCliArgs", () => {
   });
 
   test("allows --model to be absent (defaultModel from config can fill in)", () => {
-    const result = parseCliArgsWithArgs([
+    const result = parseCliArgs([
       "--repo", "owner/repo",
       "--prompt", "Add tests",
     ]);
@@ -63,7 +53,7 @@ describe("parseCliArgs", () => {
   });
 
   test("parses all optional arguments", () => {
-    const result = parseCliArgsWithArgs([
+    const result = parseCliArgs([
       "--repo", "owner/repo",
       "--model", "sonnet",
       "--prompt", "fix bug",
@@ -78,7 +68,7 @@ describe("parseCliArgs", () => {
   });
 
   test("parses --prompt-file argument", () => {
-    const result = parseCliArgsWithArgs([
+    const result = parseCliArgs([
       "--repo", "owner/repo",
       "--model", "sonnet",
       "--prompt-file", "/tmp/task.md",
@@ -89,17 +79,15 @@ describe("parseCliArgs", () => {
 
   test("throws ValidationError when --repo is missing", () => {
     expect(() =>
-      parseCliArgsWithArgs(["--model", "sonnet", "--prompt", "test"])
+      parseCliArgs(["--model", "sonnet", "--prompt", "test"])
     ).toThrow(ValidationError);
     expect(() =>
-      parseCliArgsWithArgs(["--model", "sonnet", "--prompt", "test"])
+      parseCliArgs(["--model", "sonnet", "--prompt", "test"])
     ).toThrow(/Missing required argument: --repo/);
-    // Note: usage message now mentions --model as optional since it can come from config
   });
 
   test("--model is now optional at parse time (validated later with config)", () => {
-    // --model is no longer required in parseCliArgs — resolveModels() does the final check
-    const result = parseCliArgsWithArgs([
+    const result = parseCliArgs([
       "--repo", "owner/repo",
       "--prompt", "test",
     ]);
@@ -108,16 +96,16 @@ describe("parseCliArgs", () => {
 
   test("throws ValidationError when neither --prompt nor --prompt-file is provided", () => {
     expect(() =>
-      parseCliArgsWithArgs(["--repo", "owner/repo", "--model", "sonnet"])
+      parseCliArgs(["--repo", "owner/repo", "--model", "sonnet"])
     ).toThrow(ValidationError);
     expect(() =>
-      parseCliArgsWithArgs(["--repo", "owner/repo", "--model", "sonnet"])
+      parseCliArgs(["--repo", "owner/repo", "--model", "sonnet"])
     ).toThrow(/Either --prompt or --prompt-file must be provided/);
   });
 
   test("throws ValidationError when both --prompt and --prompt-file are provided", () => {
     expect(() =>
-      parseCliArgsWithArgs([
+      parseCliArgs([
         "--repo", "owner/repo",
         "--model", "sonnet",
         "--prompt", "test",
@@ -125,7 +113,7 @@ describe("parseCliArgs", () => {
       ])
     ).toThrow(ValidationError);
     expect(() =>
-      parseCliArgsWithArgs([
+      parseCliArgs([
         "--repo", "owner/repo",
         "--model", "sonnet",
         "--prompt", "test",
@@ -135,7 +123,7 @@ describe("parseCliArgs", () => {
   });
 
   test("optional args default to undefined when not provided", () => {
-    const result = parseCliArgsWithArgs([
+    const result = parseCliArgs([
       "--repo", "owner/repo",
       "--model", "sonnet",
       "--prompt", "test",
@@ -146,7 +134,7 @@ describe("parseCliArgs", () => {
   });
 
   test("parses --config flag", () => {
-    const result = parseCliArgsWithArgs([
+    const result = parseCliArgs([
       "--repo", "owner/repo",
       "--model", "sonnet",
       "--prompt", "test",
@@ -155,34 +143,18 @@ describe("parseCliArgs", () => {
     expect(result.configPath).toBe("/path/to/config.json");
   });
 
-  test("--help triggers process.exit(0)", () => {
-    let exitCode = -1;
-    // @ts-expect-error - mocking process.exit
-    process.exit = (code: number) => {
-      exitCode = code;
-      throw new Error(`EXIT:${code}`);
-    };
-
+  test("--help throws CommanderError with exitCode 0", () => {
     expect(() =>
-      parseCliArgsWithArgs(["--help"])
-    ).toThrow(/EXIT:0/);
-    expect(exitCode).toBe(0);
+      parseCliArgs(["--help"])
+    ).toThrow();
+    try {
+      parseCliArgs(["--help"]);
+    } catch (err: any) {
+      expect(err.code).toBe("commander.helpDisplayed");
+      expect(err.exitCode).toBe(0);
+    }
   });
 });
-
-/**
- * Helper: calls parseCliArgs with process.argv spoofed.
- * parseCliArgs uses node:util parseArgs which reads from process.argv.
- */
-function parseCliArgsWithArgs(userArgs: string[]): CliArgs {
-  const savedArgv = process.argv;
-  process.argv = ["bun", "codver.ts", ...userArgs];
-  try {
-    return parseCliArgs();
-  } finally {
-    process.argv = savedArgv;
-  }
-}
 
 // ─── sanitizeBranchName ──────────────────────────────────────────────
 

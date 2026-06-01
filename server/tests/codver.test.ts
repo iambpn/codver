@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { ValidationError } from "../lib/cli";
-import { PROVIDER_ENV_MAP, GITIGNORE_ENTRIES } from "../lib/types";
+import { PROVIDER_ENV_MAP } from "../lib/types";
+import { GIT_STAGING_EXCLUSIONS, CODVER_REPO_PATTERNS, GITIGNORE_ENTRIES } from "../lib/paths";
 
 // ─── ValidationError usage in main ─────────────────────────────────────
 
@@ -28,14 +29,16 @@ describe("GITIGNORE_ENTRIES consistency with main pipeline", () => {
     expect(GITIGNORE_ENTRIES).toContain(".codver-plan");
   });
 
-  test("the dev files excluded from git add in main match GITIGNORE_ENTRIES", () => {
-    // In codver.ts, the git add command excludes:
-    // docker-compose.dev.yml, bunfig.toml, .env, .codver-plan
-    // These should match the non-comment entries in GITIGNORE_ENTRIES
-    const excludePatterns = ["docker-compose.dev.yml", "bunfig.toml", ".env", ".codver-plan"];
-    for (const pattern of excludePatterns) {
-      expect(GITIGNORE_ENTRIES).toContain(pattern);
+  test("the dev files excluded from git add are covered by GIT_STAGING_EXCLUSIONS", () => {
+    // codver.ts uses GIT_STAGING_EXCLUSIONS to build the `:!pattern` args for git add.
+    // All CODVER_REPO_PATTERNS must be in the exclusions list.
+    for (const pattern of CODVER_REPO_PATTERNS) {
+      expect(GIT_STAGING_EXCLUSIONS).toContain(pattern);
     }
+
+    // Standard .gitignore entries are also explicitly excluded
+    expect(GIT_STAGING_EXCLUSIONS).toContain("node_modules");
+    expect(GIT_STAGING_EXCLUSIONS).toContain(".DS_Store");
   });
 });
 
@@ -49,15 +52,14 @@ describe("Pipeline phase order", () => {
     const phases = [
       "Phase 1: Setup & Validation",
       "Phase 2: Clone & Branch",
-      "Phase 3: Generate Dev Compose",
-      "Phase 4: Modify .gitignore",
-      "Phase 5: Start Containers",
-      "Phase 6: Execute Task",
-      "Phase 7: Cleanup",
+      "Phase 3: Generate Dev Environment",
+      "Phase 4: Start Containers",
+      "Phase 5: Execute Task",
+      "Phase 6: Cleanup",
       "Phase 8: Evaluate Changes",
       "Phase 9a: Commit & Create PR / Phase 9b: No Update Report",
     ];
-    expect(phases.length).toBe(9);
+    expect(phases.length).toBe(8);
   });
 
   test("model validation happens before container setup", () => {

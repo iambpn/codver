@@ -10,26 +10,30 @@ export { RESET, BOLD, RED, GREEN, YELLOW, CYAN, DIM };
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-let spinnerInterval: ReturnType<typeof setInterval> | null = null;
-let spinnerPrefix = "";
+// Spinner state is encapsulated to prevent concurrent corruption.
+// Only one spinner should be active at a time (enforced by spinningStep).
+const _spinnerState = {
+  interval: null as ReturnType<typeof setInterval> | null,
+  prefix: "",
+};
 
 function startSpinner(prefix: string) {
   stopSpinner();
-  spinnerPrefix = prefix;
+  _spinnerState.prefix = prefix;
   let frameIndex = 0;
   process.stdout.write("\x1b[?25l"); // hide cursor
-  spinnerInterval = setInterval(() => {
+  _spinnerState.interval = setInterval(() => {
     const frame = SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length];
-    process.stdout.write(`\r${CYAN}${frame}${RESET} ${BOLD}${spinnerPrefix}${RESET}...`);
+    process.stdout.write(`\r${CYAN}${frame}${RESET} ${BOLD}${_spinnerState.prefix}${RESET}...`);
     frameIndex++;
   }, 80);
 }
 
 function stopSpinner() {
-  if (spinnerInterval !== null) {
-    clearInterval(spinnerInterval);
-    spinnerInterval = null;
-    process.stdout.write("\r" + " ".repeat(spinnerPrefix.length + 10) + "\r");
+  if (_spinnerState.interval !== null) {
+    clearInterval(_spinnerState.interval);
+    _spinnerState.interval = null;
+    process.stdout.write("\r" + " ".repeat(_spinnerState.prefix.length + 10) + "\r");
     process.stdout.write("\x1b[?25h"); // show cursor
   }
 }

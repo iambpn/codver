@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeEach, afterEach, mock, jest } from "bun:test";
+import YAML from "yaml";
 import {
   generateDevCompose,
-  modifyGitignore,
   generateBranchName,
   generateCommitMessage,
   generatePRDescription,
@@ -12,7 +12,6 @@ import {
 //
 // The ai.ts module uses:
 //   - AuthStorage, ModelRegistry, createAgentSession, SessionManager from pi SDK
-//   - Bun.file / Bun.write in some functions (modifyGitignore)
 //   - getProviderEnvForCompose from security module
 //
 // Since ai.ts creates sessions internally, we mock the entire session lifecycle.
@@ -105,9 +104,18 @@ describe("generateBranchName", () => {
     // 6. Prefixed with "codver/"
     // 7. Falls back to codver-{timestamp} on empty result
 
-    // These are tested indirectly through the ai module's internal sanitization.
-    // We verify by checking the function signature and expected behavior.
-    expect(true).toBe(true); // Placeholder — actual AI calls require live SDK
+    const input = "Add Feature & Fix Bug!";
+    let branchName = input
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40);
+    if (!branchName) branchName = `codver-${Date.now()}`;
+    const result = `codver/${branchName}`;
+    expect(result).toBe("codver/add-feature-fix-bug");
+    expect(result.startsWith("codver/")).toBe(true);
   });
 });
 
@@ -117,7 +125,12 @@ describe("generateCommitMessage", () => {
   test("post-processing: truncates titles over 72 characters", () => {
     // This tests the post-processing logic internally used by generateCommitMessage
     const longTitle = "feat: this is an extremely long commit title that exceeds the seventy-two character limit by quite a bit";
-    const truncated = longTitle.length > 72 ? longTitle.slice(0, 69) + "..." : longTitle;
+    let truncated: string;
+    if (longTitle.length > 72) {
+      truncated = longTitle.slice(0, 69) + "...";
+    } else {
+      truncated = longTitle;
+    }
     expect(truncated.length).toBeLessThanOrEqual(72);
     expect(truncated).toContain("...");
   });
@@ -145,14 +158,7 @@ describe("generateNoUpdateDoc", () => {
     expect(cleaned).toBe("# Title\nContent");
   });
 
-  test("post-processing: handles triple backticks without language hint", () => {
-    const withFences = "```\n# Title\nContent\n```";
-    let cleaned = withFences.trim();
-    cleaned = cleaned.replace(/^```markdown?\n?/i, "").replace(/\n?```\s*$/i, "");
-    // The leading ``` without "markdown" won't match the first regex, but
-    // the closing ``` will match the second pattern
-    // This is expected behavior — the regex is specific to ```markdown
-  });
+
 });
 
 // ─── generateDevCompose ────────────────────────────────────────────────
@@ -221,7 +227,6 @@ describe("generateDevCompose", () => {
 
   test("YAML validation: valid YAML with services: key parses correctly", () => {
     const validYaml = `services:\n  pi-agent:\n    image: oven/bun:1\n    networks:\n      - dev-network\n`;
-    const YAML = require("yaml");
     const parsed = YAML.parse(validYaml);
     expect(parsed).toBeDefined();
     expect(parsed.services).toBeDefined();
@@ -236,7 +241,6 @@ describe("generateDevCompose", () => {
     // The regex would extract something, but YAML.parse would fail or return invalid
     expect(yamlMatch).not.toBeNull();
     // But parsing it should produce an invalid result (no proper services object)
-    const YAML = require("yaml");
     try {
       const parsed = YAML.parse(yamlMatch![0]);
       // If it parses, it likely won't have a proper services object
@@ -249,38 +253,6 @@ describe("generateDevCompose", () => {
   });
 });
 
-// ─── modifyGitignore ──────────────────────────────────────────────────
-
-describe("modifyGitignore", () => {
-  test("reads .gitignore file after AI modification", async () => {
-    const expectedContent = `node_modules/
-dist/
-# Codver dev environment
-docker-compose.dev.yml
-bunfig.toml
-.env
-.codver-plan`;
-
-    // Mock Bun.file to return content
-    (Bun as any).file = mock((filePath: string) => {
-      if (filePath.endsWith(".gitignore")) {
-        return {
-          text: async () => expectedContent,
-          exists: async () => true,
-          unlink: async () => {},
-        };
-      }
-      return { text: async () => "", exists: async () => false, unlink: async () => {} };
-    });
-
-    // Note: modifyGitignore internally calls runAiTask which requires the pi SDK.
-    // This test verifies the read-back logic assuming the AI task succeeds.
-    // Full integration test would require a live SDK.
-    expect(expectedContent).toContain("# Codver dev environment");
-    expect(expectedContent).toContain("docker-compose.dev.yml");
-  });
-});
-
 // ─── Integration-style tests (require SDK mocking) ────────────────────
 //
 // The following tests validate the public API surface and expected behavior
@@ -290,10 +262,6 @@ bunfig.toml
 describe("AI module public interface", () => {
   test("generateDevCompose is an async function", () => {
     expect(typeof generateDevCompose).toBe("function");
-  });
-
-  test("modifyGitignore is an async function", () => {
-    expect(typeof modifyGitignore).toBe("function");
   });
 
   test("generateBranchName is an async function", () => {

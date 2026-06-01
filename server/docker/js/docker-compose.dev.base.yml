@@ -1,0 +1,30 @@
+# ─── Codver Base Docker Compose ──────────────────────────────────────
+#
+# This is the BASE docker-compose.dev.yml that codver provides to the LLM.
+# The LLM will MODIFY this file to add:
+#   - Project-specific services (databases, caches, etc.)
+#   - Additional environment variables the project needs
+#   - Any extra volumes or build context changes
+#
+# The LLM MUST NOT:
+#   - Remove or alter the pi-agent service
+#   - Remove the dev-network
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  pi-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace:rw
+      - ./bunfig.toml:/root/.bunfig.toml:ro
+    environment:
+{{envVarLines}}
+    networks:
+      - dev-network
+
+networks:
+  dev-network:
+    driver: bridge
