@@ -9,9 +9,10 @@
 #   node  — many JS/TS projects need this
 # ─────────────────────────────────────────────────────────────────────
 
-bun = "1.3.13"
-node = "24.15.0"
+bun = "latest"
+node = "lts"
 npm = "bundled"
+pnpm = "latest"
 
 [settings]
 auto-install = true

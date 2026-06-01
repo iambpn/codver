@@ -152,7 +152,7 @@ export async function runClean(options: CleanOptions) {
   } else {
     success("Home directory cleanup complete!");
     info(
-      `Run \`bun run codver.ts clean --all\` to remove everything, or \`bun run codver.ts clean --dry-run\` to preview.`,
+      `Run \`codver clean --all\` to remove everything, or \`codver clean --dry-run\` to preview.`,
     );
   }
 }

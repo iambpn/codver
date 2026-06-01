@@ -182,7 +182,7 @@ export async function main(args: CliArgs) {
   success("Codver pipeline completed successfully!");
   info(`Working directory: ${cwd}`);
   info(`Tip: Working directories are stored in ${CODVER_HOME_DIR} and are NOT automatically cleaned up.`);
-  info(`      To free disk space, run: bun run codver.ts clean`);
+  info(`      To free disk space, run: codver clean`);
 }
 
 async function runPipeline(

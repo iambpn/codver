@@ -4,4 +4,4 @@ Look into the project files and determine the package manager, language, framewo
 if there is no dependency installation needed, output "command: " with an empty command.
 
 return your answer in one line with "command" prepend to it, for example:
-"command": "npm install"
+"command": "pnpm install"
