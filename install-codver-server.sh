@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="https://github.com/iambpn/open-codver.git"
+REPO="https://github.com/iambpn/codver.git"
 INSTALL_DIR="$HOME/.codver"
 SERVER_DIR="$INSTALL_DIR/server"
 BIN_DIR="$SERVER_DIR/bin"
@@ -63,17 +63,27 @@ add_to_path() {
 
 info "Configuring PATH ..."
 add_to_path "$HOME/.bashrc"
-add_to_path "$HOME/.zshrc"
-add_to_path "$HOME/.profile"
+# add_to_path "$HOME/.zshrc"
+# add_to_path "$HOME/.profile"
 
 if [ -f "$HOME/.config/fish/config.fish" ]; then
-  local fish_line="fish_add_path $BIN_DIR"
+  fish_line="fish_add_path $BIN_DIR"
   if ! grep -q "$BIN_DIR" "$HOME/.config/fish/config.fish" 2>/dev/null; then
     echo "" >> "$HOME/.config/fish/config.fish"
     echo "# Added by codver server installer" >> "$HOME/.config/fish/config.fish"
     echo "$fish_line" >> "$HOME/.config/fish/config.fish"
     info "Added $BIN_DIR to fish config"
   fi
+fi
+
+warn ""
+if [ -f "$HOME/.bashrc" ]; then
+  warn "PATH was added to ~/.bashrc. Start a new terminal or source it:"
+  warn "  source ~/.bashrc"
+else
+  warn ".bashrc not found — your shell may not be bash."
+  warn "Add the following to your shell's rc file (e.g. ~/.zshrc):"
+  warn "  export PATH=\"$BIN_DIR:\$PATH\""
 fi
 
 info ""

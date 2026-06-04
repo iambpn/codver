@@ -21,8 +21,8 @@ import {
 } from "../../lib/paths";
 
 describe("path constants", () => {
-  test("CODVER_HOME_DIR points to ~/.codver", () => {
-    expect(CODVER_HOME_DIR).toBe(path.join(os.homedir(), ".codver"));
+  test("CODVER_HOME_DIR points to ~/.codver-dev", () => {
+    expect(CODVER_HOME_DIR).toBe(path.join(os.homedir(), ".codver-dev"));
   });
 
   test("CODVER_CONFIG_PATH points to ~/.config/codver/codver.config.json", () => {
@@ -42,7 +42,7 @@ describe("path constants", () => {
 
   test("getRepoDir constructs correct path", () => {
     const dir = getRepoDir("my-repo", 1700000000000);
-    expect(dir).toBe(path.join(os.homedir(), ".codver", "my-repo-1700000000000"));
+    expect(dir).toBe(path.join(os.homedir(), ".codver-dev", "my-repo-1700000000000"));
   });
 
   test("DEV_COMPOSE_FILE is docker-compose.dev.yml", () => {

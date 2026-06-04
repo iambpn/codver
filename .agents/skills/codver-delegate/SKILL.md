@@ -115,10 +115,10 @@ If the task exceeds ~2000 characters, write it to a temp file on the remote and 
 
 ```bash
 if [ "$(printf '%s' "$TASK" | wc -c)" -gt 2000 ]; then
-  ssh $PORT_FLAG "$SSH_HOST" "mkdir -p ~/.codver/tasks && cat > ~/.codver/tasks/$SESSION_NAME.md" <<'TASK_EOF'
+  ssh $PORT_FLAG "$SSH_HOST" "mkdir -p ~/.codver-dev/tasks && cat > ~/.codver-dev/tasks/$SESSION_NAME.md" <<'TASK_EOF'
 $TASK
 TASK_EOF
-  CMD="codver --repo '$REPO' --prompt-file ~/.codver/tasks/$SESSION_NAME.md"
+  CMD="codver --repo '$REPO' --prompt-file ~/.codver-dev/tasks/$SESSION_NAME.md"
 fi
 ```
 

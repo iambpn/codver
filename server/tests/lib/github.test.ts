@@ -85,7 +85,7 @@ describe("cloneRepo", () => {
     const result = await cloneRepo("owner/repo");
     expect(result.repoName).toMatch(/^owner-repo/);
     expect(result.defaultBranch).toBe("main");
-    expect(result.repoDir).toContain(".codver");
+    expect(result.repoDir).toContain(".codver-dev");
   });
 
   test("throws on clone failure", async () => {

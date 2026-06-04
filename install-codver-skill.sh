@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="https://github.com/iambpn/open-codver.git"
+REPO="https://github.com/iambpn/codver.git"
 SKILL_DIR=".agents/skills/codver-delegate"
 
 TARGET="${1:-.}"

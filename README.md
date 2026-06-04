@@ -115,7 +115,7 @@ codver --repo https://github.com/owner/repo --prompt "Refactor the database laye
 | `codver check` | Verify host deps, config, API keys, model, and repo access |
 | `codver init` | Generate `~/.config/codver/codver.config.json` |
 | `codver init --force` | Overwrite existing config |
-| `codver clean` | Remove cloned repos under `~/.codver/` (preserves config) |
+| `codver clean` | Remove cloned repos under `~/.codver-dev/` (preserves config) |
 | `codver clean --all` | Full cleanup including Docker artifacts |
 | `codver clean --dry-run` | Preview what would be removed |
 

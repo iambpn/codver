@@ -22,7 +22,7 @@ export function addCleanOptions(cmd: Command): Command {
       "--all",
       "Remove everything (default: home dir + any repo artifact files). Config file is always preserved.",
     )
-    .option("--home", "Remove only the ~/.codver directory (cloned repos). Config file is always preserved.")
+    .option("--home", "Remove only the ~/.codver-dev directory (cloned repos). Config file is always preserved.")
     .option("--dry-run", "Show what would be deleted without actually deleting anything");
 }
 
@@ -126,8 +126,8 @@ export async function runClean(options: CleanOptions) {
   blankLine();
 
   if (mode === "home" || mode === "all") {
-    // Remove the entire ~/.codver/ directory
-    // Note: the global config file (~/.config/.codver) is intentionally NOT removed
+    // Remove the entire ~/.codver-dev/ directory
+    // Note: the global config file (~/.config/codver/codver.config.json) is intentionally NOT removed
     // during clean operations. It is always preserved.
     await removeDir(CODVER_HOME_DIR, dryRun);
   }

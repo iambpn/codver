@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 // ─── Home-level directories ────────────────────────────────────────
 
 /** Root working directory for Codver (under $HOME). */
-export const CODVER_HOME_DIR = path.join(os.homedir(), ".codver");
+export const CODVER_HOME_DIR = path.join(os.homedir(), ".codver-dev");
 
 /**
  * Get the global config file path.
@@ -32,7 +32,7 @@ export const CODVER_CONFIG_PATH = getGlobalConfigPath();
 
 /**
  * Build a per-repo working directory path.
- * Format: ~/.codver/<repoName>-<timestamp>
+ * Format: ~/.codver-dev/<repoName>-<timestamp>
  */
 export function getRepoDir(repoName: string, timestamp: number): string {
   return path.join(CODVER_HOME_DIR, `${repoName}-${timestamp}`);
