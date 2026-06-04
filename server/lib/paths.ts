@@ -131,6 +131,23 @@ export async function ensureConfigDir(): Promise<string> {
 }
 
 /**
+ * Ensure the full global config directory exists (creates both ~/.config
+ * and ~/.config/codver). Returns the absolute path to ~/.config/codver.
+ */
+export async function ensureGlobalConfigDir(): Promise<string> {
+  const home = process.env.HOME || os.homedir();
+  const configDir = path.join(home, ".config");
+  if (!(await Bun.file(configDir).exists())) {
+    await mkdir(configDir, { recursive: true });
+  }
+  const globalConfigDir = path.join(home, ".config", "codver");
+  if (!(await Bun.file(globalConfigDir).exists())) {
+    await mkdir(globalConfigDir, { recursive: true });
+  }
+  return globalConfigDir;
+}
+
+/**
  * All top-level file patterns that Codver creates inside a repo clone,
  * expressed as relative paths safe for glob/rimraf patterns.
  */

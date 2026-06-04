@@ -1,70 +1,178 @@
 ---
 name: codver-delegate
-description: Delegate a coding task to the remote server agent (fire-and-forget). It will raise the pr in the github repository. Use when the user wants to offload a task to a remote opencode instance.
+description: Delegate a coding task to a remote codver server (fire-and-forget). Use when the user wants to offload a GitHub repo task to a remote server running codver — the remote server clones the repo, runs the AI agent, and creates a PR.
 license: MIT
-compatibility: Requires ssh and tmux. Requires either a ~/.codever-ssh config file or an explicit user@host in the prompt
+compatibility: Requires ssh, tmux (or nohup fallback), and codver CLI on the remote server. Optionally reads ~/.codever-ssh for the default SSH target.
 metadata:
   author: codever
-  version: "2.0"
-allowed-tools: Bash(ssh:*) Bash(bash:*)
+  version: "6.0"
+allowed-tools: Bash(ssh:*) Bash(bash:*) AskUserQuestion
 ---
 
-# Delegate Task to Server Agent
+# Delegate a Coding Task to a Remote Codver Server
 
-When the user invokes `/codver-delegate` or asks to delegate a coding task to the remote server, follow these steps in order.
+When the user invokes `/codver-delegate`, follow these steps. **Discover the remote CLI dynamically** — run `--help` instead of assuming the command surface.
 
-## Step 1 — Determine the SSH target
+## Step 1 — Parse the user's request
 
-1. **If the user's prompt contains an SSH hostname/server** (e.g. `deploy@192.168.1.10`, `root@my-server`), extract the `user@host` string directly.
-2. **Otherwise**, read the target from `~/.codever-ssh` by running:
+Extract these components from the user's message:
 
-```bash
-bash scripts/parse-ssh-target.sh
-```
+| Component | How to detect |
+|-----------|---------------|
+| **SSH target** | `user@host` or `user@192.168.x.x` |
+| **Subcommand** | Words like `check`, `init`, `clean` — user may want a subcommand instead of the full pipeline |
+| **Model** | `--model <value>`, "use model X" |
+| **Repo** | GitHub URL or `owner/repo` shorthand |
+| **Task** | Everything else (the coding task description) |
+| **Other flags** | Any `--flag <value>` patterns (validate against `--help` later) |
 
-The script prints the `user@host` string to stdout. Use that as `USERHOST`.
+## Step 2 — Resolve the SSH target
 
-## Step 2 — Check prerequisites
+1. If the user's message contains `user@host`, extract it.
+2. Otherwise, try `cat ~/.codever-ssh 2>/dev/null`.
+3. If still missing, ask with **AskUserQuestion** (header: "SSH Target"). If no answer, stop.
 
-Run these checks against the remote host to fail early with clear errors:
+Handle non-standard ports: if the target contains `:2222`, extract the port into `-p <port>` for all SSH commands.
 
-### 2a. SSH connectivity
+## Step 3 — Connect and discover the CLI
 
-```bash
-ssh -o ConnectTimeout=10 -o BatchMode=yes "$USERHOST" "true"
-```
-
-If this fails, report the error and stop.
-
-### 2b. tmux availability
-
-```bash
-ssh -o ConnectTimeout=10 "$USERHOST" "command -v tmux >/dev/null"
-```
-
-If this fails, tell the user `tmux` is not installed on the remote host and stop.
-
-### 2c. opencode availability
+### 3a. Test SSH
 
 ```bash
-ssh -o ConnectTimeout=10 "$USERHOST" "command -v opencode >/dev/null"
+ssh -o ConnectTimeout=10 -o BatchMode=yes $PORT_FLAG "$SSH_HOST" "true"
 ```
+On failure: report the error and stop.
 
-If this fails, tell the user `opencode` is not found on the remote host and stop.
-
-## Step 3 — Create the tmux session
-
-Check whether a session named `opencode` already exists, then create one. **Always create the session with a persistent shell first**, then send `opencode` via `send-keys`. Running `opencode` directly as the tmux command causes the session to be destroyed if `opencode` exits (e.g. crashes on startup due to missing TTY).
+### 3b. Check codver exists
 
 ```bash
-ssh -o ConnectTimeout=10 "$USERHOST" "tmux has-session -t opencode 2>/dev/null && (tmux new-session -d -s opencode-\$(date +%s) 2>&1 && tmux send-keys -t opencode-\$(date +%s) opencode Enter) || (tmux new-session -d -s opencode 2>&1 && tmux send-keys -t opencode opencode Enter)"
+ssh $PORT_FLAG "$SSH_HOST" "command -v codver >/dev/null && echo 'found' || echo 'not found'"
+```
+If "not found": tell the user to install codver on the remote and stop.
+
+### 3c. Discover commands
+
+```bash
+ssh $PORT_FLAG "$SSH_HOST" "codver --help"
 ```
 
-Report success or failure to the user.
+Parse the output to learn available subcommands and global options. Use this to decide:
+- Which command matches the user's intent (subcommand or default pipeline)
+- What flags are available
 
-## Error reference
+### 3d. Discover command-specific options
 
-| Exit code | Meaning                                           |
-| --------- | ------------------------------------------------- |
-| 2         | `~/.codever-ssh` file is missing                  |
-| 3         | Could not parse a valid `user@host` from config  |
+```bash
+ssh $PORT_FLAG "$SSH_HOST" "codver <subcommand> --help"
+```
+
+From the help output, identify required vs optional flags. Validate any flags the user mentioned against this list — warn if a flag doesn't exist.
+
+### 3e. Gather missing required inputs
+
+For required flags still missing, ask the user with **AskUserQuestion**. Omit optional flags the user didn't specify — the remote will use its defaults.
+
+## Step 4 — Run `codver check`
+
+Verify the remote environment before delegating:
+
+```bash
+ssh $PORT_FLAG "$SSH_HOST" "codver check <any-user-provided-flags>"
+```
+
+Interpret failures for the user: missing deps → install them; no config → run `codver init`; missing API keys → set the env vars; invalid model → show the available-models list from the error; repo unreachable → check URL or `gh auth login`.
+
+**If this is a check-only request**, stop here. **For delegation**, only proceed if check passes.
+
+## Step 5 — Determine the model
+
+1. Use the user-specified model if provided.
+2. Otherwise, detect from the current session and map to `provider/model-id` format:
+   - `deepseek-v4-pro` → `opencode-go/deepseek-v4-pro`
+   - `claude-sonnet-4-6` → `anthropic/claude-sonnet-4-20250514`
+   - `claude-opus-4-8` → `anthropic/claude-opus-4-8`
+3. Fall back: leave `MODEL` empty; the remote uses its `defaultModel` from config.
+
+## Step 6 — Delegate (fire-and-forget)
+
+### 6a. Build the command
+
+Use only flags validated against `--help` output:
+
+```bash
+SESSION_NAME="codver-$(date +%s)"
+ESCAPED_TASK=$(printf '%s' "$TASK" | sed "s/'/'\\\\''/g")
+
+CMD="codver --repo '$REPO'"
+[ -n "$MODEL" ] && CMD="$CMD --model '$MODEL'"
+# Append any other user-specified, help-validated flags
+CMD="$CMD --prompt '$ESCAPED_TASK'"
+```
+
+### 6b. Long tasks → use --prompt-file
+
+If the task exceeds ~2000 characters, write it to a temp file on the remote and use `--prompt-file` instead:
+
+```bash
+if [ "$(printf '%s' "$TASK" | wc -c)" -gt 2000 ]; then
+  ssh $PORT_FLAG "$SSH_HOST" "mkdir -p ~/.codver/tasks && cat > ~/.codver/tasks/$SESSION_NAME.md" <<'TASK_EOF'
+$TASK
+TASK_EOF
+  CMD="codver --repo '$REPO' --prompt-file ~/.codver/tasks/$SESSION_NAME.md"
+fi
+```
+
+### 6c. Launch via tmux (preferred) or nohup (fallback)
+
+```bash
+if [ "$(ssh $PORT_FLAG "$SSH_HOST" "command -v tmux >/dev/null && echo yes || echo no")" = "yes" ]; then
+  ssh $PORT_FLAG "$SSH_HOST" "tmux new-session -d -s '$SESSION_NAME' 'cd ~ && $CMD'"
+  echo "TMUX_SESSION=$SESSION_NAME"
+else
+  LOG_FILE="~/codver-$SESSION_NAME.log"
+  ssh $PORT_FLAG "$SSH_HOST" "cd ~ && nohup $CMD > '$LOG_FILE' 2>&1 &"
+  echo "NOHUP_LOG=$LOG_FILE"
+fi
+```
+
+### 6d. Verify launch
+
+Check that the tmux session exists or the nohup log file was created. Warn if not found but don't block.
+
+## Step 7 — Report
+
+```
+Task delegated to $SSH_HOST.
+
+  Repository:  $REPO
+  Model:       ${MODEL:-<remote default>}
+  Task:        ${TASK:0:200}...
+
+  ${TMUX_OK:+tmux session: $SESSION_NAME}
+  ${TMUX_OK:+Attach:  ssh $PORT_FLAG $SSH_HOST -t tmux attach -t $SESSION_NAME}
+  ${TMUX_OK:+Kill:    ssh $PORT_FLAG $SSH_HOST "tmux kill-session -t $SESSION_NAME"}
+  ${TMUX_OK:-Log:     ssh $PORT_FLAG $SSH_HOST "tail -f $LOG_FILE"}
+```
+
+## Subcommand reference
+
+| User intent | Command | Notes |
+|------------|---------|-------|
+| "check the server" | `codver check` | Optionally forward `--model`, `--repo` |
+| "create/setup config" | `codver init` | Use `--force` to overwrite |
+| "clean up" | `codver clean` | Run `--dry-run` first |
+
+For subcommands, run directly via SSH (no tmux/nohup) and report the output.
+
+## Errors
+
+| Situation | Action |
+|-----------|--------|
+| No SSH target | Stop: "No SSH target provided." |
+| SSH fails | Stop: show error, suggest checking connectivity |
+| codver not found | Stop: "Install codver on the remote." |
+| `--help` fails | Stop: "codver CLI appears broken." |
+| Unknown flag from user | Warn, don't block |
+| Required flag missing | Ask user; stop if unanswered |
+| `codver check` fails | Interpret failures, suggest fixes, stop |
+| tmux session not found | Warn only (nohup fallback may still work) |

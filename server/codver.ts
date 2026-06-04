@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
+import { addCheckOptions, runCheck } from "./lib/check";
 import { addCleanOptions, runClean } from "./lib/clean";
+import { addInitOptions, runInit } from "./lib/init";
 import { addMainOptions, validateCliOpts, ValidationError } from "./lib/cli";
 import { main } from "./lib/pipeline";
 import { error } from "./lib/progress";
@@ -41,6 +43,10 @@ Examples:
   $ codver --repo owner/repo --prompt "Add unit tests"  # uses defaultModel from config
   $ codver --config ./my-config.json --repo owner/repo --model sonnet --prompt "fix bug"
   $ codver clean --dry-run
+  $ codver init                    # generate ~/.config/codver/codver.config.json
+  $ codver init --force            # overwrite existing config
+  $ codver check                   # verify host deps, config, and provider API keys
+  $ codver check --config ./my.json
 `,
   );
 
@@ -82,6 +88,49 @@ cleanCmd.action(async (opts) => {
   }
   const mode = opts.home ? "home" : "all";
   await runClean({ mode, dryRun: !!opts.dryRun });
+});
+
+const initCmd = program
+  .command("init")
+  .description("Generate a Codver config file at ~/.config/codver/codver.config.json")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ codver init                # write default config to ~/.config/codver/
+  $ codver init --force        # overwrite an existing config
+  $ codver init --path ./cfg   # write to a custom path
+`,
+  );
+addInitOptions(initCmd);
+
+initCmd.action(async (opts) => {
+  try {
+    await runInit({ force: !!opts.force, path: opts.path });
+  } catch (err) {
+    error(`Init failed: ${err}`);
+    process.exit(1);
+  }
+});
+
+const checkCmd = program
+  .command("check")
+  .description("Verify host dependencies, config file, provider API keys, model, and repository access")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ codver check                  # check the global config
+  $ codver check --config ./my.json
+  $ codver check --model anthropic/claude-sonnet-4-20250514
+  $ codver check --repo https://github.com/owner/repo
+  $ codver check --repo owner/repo --model anthropic/claude-sonnet-4-20250514
+`,
+  );
+addCheckOptions(checkCmd);
+
+checkCmd.action(async (opts) => {
+  await runCheck({ configPath: opts.config, model: opts.model, repo: opts.repo });
 });
 
 program.parseAsync().catch((err) => {
