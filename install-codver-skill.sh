@@ -2,18 +2,23 @@
 set -euo pipefail
 
 REPO="https://github.com/iambpn/codver.git"
-SKILL_DIR=".agents/skills/codver-delegate"
+SRC_SKILL=".agents/skills/codver-delegate"
 
-TARGET="${1:-.}"
-TARGET="$(cd "$TARGET" 2>/dev/null && pwd || echo "")"
+# Target is the project root directory. The skill is always installed at
+# <project-root>/.agents/skills/codver-delegate regardless of the target.
+PROJECT_ROOT="${1:-.}"
+PROJECT_ROOT="$(cd "$PROJECT_ROOT" 2>/dev/null && pwd || echo "")"
 
-if [ -z "$TARGET" ]; then
+if [ -z "$PROJECT_ROOT" ]; then
   echo "Error: target directory '$1' does not exist"
   exit 1
 fi
 
-if [ -d "$TARGET/codver-delegate" ]; then
-  echo "Error: target directory already contains codver-delegate/"
+INSTALL_DIR="$PROJECT_ROOT/.agents/skills"
+SKILL_PATH="$INSTALL_DIR/codver-delegate"
+
+if [ -d "$SKILL_PATH" ]; then
+  echo "Error: $SKILL_PATH already exists"
   exit 1
 fi
 
@@ -23,7 +28,9 @@ trap 'rm -rf "$TMPDIR"' EXIT
 echo "Cloning $REPO ..."
 git clone --depth 1 --quiet "$REPO" "$TMPDIR/repo"
 
-echo "Copying codver-delegate skill to $TARGET ..."
-cp -r "$TMPDIR/repo/$SKILL_DIR" "$TARGET/codver-delegate"
+mkdir -p "$INSTALL_DIR"
 
-echo "Done. Skill installed at $TARGET/codver-delegate"
+echo "Copying codver-delegate skill to $INSTALL_DIR ..."
+cp -r "$TMPDIR/repo/$SRC_SKILL" "$SKILL_PATH"
+
+echo "Done. Skill installed at $SKILL_PATH"

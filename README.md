@@ -72,7 +72,7 @@ The `codver-delegate` skill lets your AI coding agent delegate tasks to a remote
 curl -fsSL https://raw.githubusercontent.com/iambpn/codver/main/install-codver-skill.sh | bash -s -- /path/to/your/project
 ```
 
-If no target is given, the skill is installed in the current directory.
+The target is always treated as the project root — the skill is installed at `<target>/.agents/skills/codver-delegate`. If no target is given, the current directory is used as the project root.
 
 ### Updating
 
