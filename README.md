@@ -74,6 +74,14 @@ curl -fsSL https://raw.githubusercontent.com/iambpn/codver/main/install-codver-s
 
 If no target is given, the skill is installed in the current directory.
 
+### Updating
+
+Pulls the latest server files from the repo and reinstalls dependencies, preserving your existing `codver.config.json`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/iambpn/codver/main/update-codver-server.sh | bash
+```
+
 ## Configuration
 
 Run `codver init` to create `~/.config/codver/codver.config.json`:
