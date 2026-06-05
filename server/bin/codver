@@ -4,23 +4,48 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_DIR="$(dirname "$SCRIPT_DIR")"
 
-# ── load_path ────────────────────────────────────────────────────────────
-# Source ~/.bashrc with the interactive guard stripped, then emit export
-# statements so the caller can eval them into the current shell:
+# ── load_path (handled entirely in bash, never reaches codver.ts) ────────
+# Strips the interactive guard from ~/.bashrc, sources it, and emits the
+# diff of export/alias statements for eval by the calling shell:
 #
-#   eval "$(~/.codver/bin/codver load_path)"
+#   eval "$(codver load_path)"
 #
-# PATH is never displayed to the user — eval consumes it inside the SSH session.
 if [ "${1:-}" = "load_path" ]; then
+  # Only run if the user has a ~/.bashrc file
   if [ -f "$HOME/.bashrc" ]; then
+    # Snapshot the current environment before sourcing .bashrc
+    _codver_before_exports=$(export -p 2>/dev/null)
+    _codver_before_aliases=$(alias -p 2>/dev/null)
+
+    # Strip the "case $- in ... esac" interactive-shell guard from .bashrc,
+    # so non-interactive shells (e.g. SSH remote commands) still load PATH
+    # and other settings that would otherwise be skipped.
     filtered=$(awk '
       /^[[:space:]]*case[[:space:]]+\$-/ { in_guard=1; next }
       /^[[:space:]]*esac/ && in_guard   { in_guard=0; next }
       !in_guard
     ' "$HOME/.bashrc")
-    eval "$filtered" 2>/dev/null
+
+    # Source the filtered .bashrc in a child bash process so that exit, exec,
+    # or stdin-reading commands in bashrc can't kill or hang the main script.
+    _codver_after=$(bash -c '
+      eval "$1" 2>/dev/null || true
+      export -p
+      printf "%s\n" "---CODV_ALIAS---"
+      alias -p 2>/dev/null
+    ' bash "$filtered" </dev/null 2>/dev/null)
+
+    # Split the combined output back into exports and aliases
+    _codver_after_exports=$(printf '%s\n' "$_codver_after" | awk '/^---CODV_ALIAS---$/ {exit} {print}')
+    _codver_after_aliases=$(printf '%s\n' "$_codver_after" | awk 'f {print} /^---CODV_ALIAS---$/ {f=1}')
+
+    # Diff: emit only exports that .bashrc added or changed
+    comm -13 <(printf '%s\n' "$_codver_before_exports" | sort) <(printf '%s\n' "$_codver_after_exports" | sort) 2>/dev/null
+
+    # Diff: emit only aliases that .bashrc added or changed
+    comm -13 <(printf '%s\n' "$_codver_before_aliases" | sort) <(printf '%s\n' "$_codver_after_aliases" | sort) 2>/dev/null
   fi
-  printf 'export PATH="%s"\n' "$PATH"
+  # Stop here — nothing reaches codver.ts
   exit 0
 fi
 
