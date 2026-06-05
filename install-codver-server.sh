@@ -27,14 +27,19 @@ fi
 
 mkdir -p "$INSTALL_DIR"
 
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+REPO_CACHE="/tmp/codver-repo"
 
-info "Cloning $REPO ..."
-git clone --depth 1 --quiet "$REPO" "$TMPDIR/repo"
+if [ -d "$REPO_CACHE/.git" ]; then
+  info "Repo already cloned at $REPO_CACHE — pulling latest ..."
+  git -C "$REPO_CACHE" fetch --depth 1 origin --quiet
+  git -C "$REPO_CACHE" reset --hard origin/main --quiet
+else
+  info "Cloning $REPO ..."
+  git clone --depth 1 --quiet "$REPO" "$REPO_CACHE"
+fi
 
 info "Copying server to $SERVER_DIR ..."
-cp -r "$TMPDIR/repo/server" "$SERVER_DIR"
+cp -r "$REPO_CACHE/server" "$SERVER_DIR"
 
 # Remove things not needed at runtime
 rm -rf "$SERVER_DIR/.gitignore" "$SERVER_DIR/tests" "$SERVER_DIR/CLAUDE.md" "$SERVER_DIR/README.md"

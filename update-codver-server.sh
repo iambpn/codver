@@ -37,17 +37,24 @@ if [ -f "$SERVER_DIR/codver.config.json" ]; then
   cp "$SERVER_DIR/codver.config.json" "$CONFIG_BAK"
 fi
 
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR" "${CONFIG_BAK:-}"' EXIT
+trap 'rm -f "${CONFIG_BAK:-}"' EXIT
 
-info "Cloning $REPO ..."
-git clone --depth 1 --quiet "$REPO" "$TMPDIR/repo"
+REPO_CACHE="/tmp/codver-repo"
+
+if [ -d "$REPO_CACHE/.git" ]; then
+  info "Repo already cloned at $REPO_CACHE — pulling latest ..."
+  git -C "$REPO_CACHE" fetch --depth 1 origin --quiet
+  git -C "$REPO_CACHE" reset --hard origin/main --quiet
+else
+  info "Cloning $REPO ..."
+  git clone --depth 1 --quiet "$REPO" "$REPO_CACHE"
+fi
 
 info "Removing old server files ..."
 rm -rf "$SERVER_DIR"
 
 info "Copying updated server to $SERVER_DIR ..."
-cp -r "$TMPDIR/repo/server" "$SERVER_DIR"
+cp -r "$REPO_CACHE/server" "$SERVER_DIR"
 
 rm -rf "$SERVER_DIR/.gitignore" "$SERVER_DIR/tests" "$SERVER_DIR/CLAUDE.md" "$SERVER_DIR/README.md"
 

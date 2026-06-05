@@ -22,15 +22,20 @@ if [ -d "$SKILL_PATH" ]; then
   exit 1
 fi
 
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+REPO_CACHE="/tmp/codver-repo"
 
-echo "Cloning $REPO ..."
-git clone --depth 1 --quiet "$REPO" "$TMPDIR/repo"
+if [ -d "$REPO_CACHE/.git" ]; then
+  echo "Repo already cloned at $REPO_CACHE — pulling latest ..."
+  git -C "$REPO_CACHE" fetch --depth 1 origin --quiet
+  git -C "$REPO_CACHE" reset --hard origin/main --quiet
+else
+  echo "Cloning $REPO ..."
+  git clone --depth 1 --quiet "$REPO" "$REPO_CACHE"
+fi
 
 mkdir -p "$INSTALL_DIR"
 
 echo "Copying codver-delegate skill to $INSTALL_DIR ..."
-cp -r "$TMPDIR/repo/$SRC_SKILL" "$SKILL_PATH"
+cp -r "$REPO_CACHE/$SRC_SKILL" "$SKILL_PATH"
 
 echo "Done. Skill installed at $SKILL_PATH"
