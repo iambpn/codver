@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { addCheckOptions, runCheck } from "./lib/check";
 import { addCleanOptions, runClean } from "./lib/clean";
 import { addInitOptions, runInit } from "./lib/init";
+import { runLoadPath } from "./lib/load_path";
 import { addMainOptions, validateCliOpts, ValidationError } from "./lib/cli";
 import { main } from "./lib/pipeline";
 import { error } from "./lib/progress";
@@ -131,6 +132,31 @@ addCheckOptions(checkCmd);
 
 checkCmd.action(async (opts) => {
   await runCheck({ configPath: opts.config, model: opts.model, repo: opts.repo });
+});
+
+const loadPathCmd = program
+  .command("load_path")
+  .description(
+    "Source ~/.bashrc (stripping the interactive guard) and emit export statements.\n" +
+      "Designed for non-interactive SSH sessions — use with eval:\n" +
+      "  eval \"$(~/.codver/bin/codver load_path)\"",
+  )
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ eval "$(codver load_path)"
+  $ eval "$(codver load_path)" && codver --repo owner/repo --prompt "fix bug"
+`,
+  );
+
+loadPathCmd.action(async () => {
+  try {
+    await runLoadPath();
+  } catch (err) {
+    error(`load_path failed: ${err}`);
+    process.exit(1);
+  }
 });
 
 program.parseAsync().catch((err) => {

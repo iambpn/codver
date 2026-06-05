@@ -67,26 +67,30 @@ ssh -o ConnectTimeout=10 -o BatchMode=yes $PORT_FLAG "$SSH_HOST" "true"
 ```
 On failure: report the error and stop.
 
-> **Important: Non-interactive SSH PATH.** When you run `ssh host "command"`, the remote shell is non-interactive and non-login — it does **not** source `~/.bashrc`, `~/.bash_profile`, or `~/.profile`. If `codver` is installed in a user-local directory (e.g. `~/.local/bin`, `~/bin`), it won't be on `PATH`.
+> **Important: Non-interactive SSH PATH.** When you run `ssh host "command"`, the remote shell is non-interactive and non-login — it does **not** source `~/.bashrc`, `~/.bash_profile`, or `~/.profile`. Many `~/.bashrc` files also have an interactivity guard (`case $- in ... *i*) ... esac`) that prevents `source ~/.bashrc` from working in non-interactive shells. Codver and its dependencies (gh, git, docker, bun) may not be on `PATH`.
 >
-> **Rule: Prefix EVERY SSH remote command with `source ~/.bashrc 2>/dev/null;`** — including any ad-hoc commands you generate yourself (subcommand runs, troubleshooting, etc.). The only exception is `ssh ... "true"` for connectivity tests. Examples:
+> **Solution: `codver load_path`.** The codver CLI has a `load_path` subcommand that reads `~/.bashrc`, strips the interactivity guard, sources the result, and emits `export` statements. The caller wraps it with `eval` to load the env into the current SSH session. The PATH is consumed by eval — never displayed to the user.
+>
+> **Rule: prefix EVERY SSH remote command with `eval "$(~/.codver/bin/codver load_path)" &&`.** Examples:
 > ```bash
-> ssh host "source ~/.bashrc 2>/dev/null; codver --help"
-> ssh host "source ~/.bashrc 2>/dev/null; which codver"
-> ssh host "source ~/.bashrc 2>/dev/null; codver init --force"
+> ssh host 'eval "$(~/.codver/bin/codver load_path)" && codver --help'
+> ssh host 'eval "$(~/.codver/bin/codver load_path)" && codver init --force'
+> ssh host 'eval "$(~/.codver/bin/codver load_path)" && codver check'
 > ```
+> 
+> The codver binary is always installed at `~/.codver/bin/codver` — this path is hardcoded.
 
 ### 3b. Check codver exists
 
 ```bash
-ssh $PORT_FLAG "$SSH_HOST" "source ~/.bashrc 2>/dev/null; command -v codver >/dev/null && echo 'found' || echo 'not found'"
+ssh $PORT_FLAG "$SSH_HOST" 'eval "$(~/.codver/bin/codver load_path)" && command -v codver >/dev/null && echo found || echo not_found'
 ```
-If "not found": tell the user to install codver on the remote and stop.
+If "not found": tell the user to install codver on the remote (to `~/.codver/bin/codver`) and stop.
 
 ### 3c. Discover commands
 
 ```bash
-ssh $PORT_FLAG "$SSH_HOST" "source ~/.bashrc 2>/dev/null; codver --help"
+ssh $PORT_FLAG "$SSH_HOST" 'eval "$(~/.codver/bin/codver load_path)" && codver --help'
 ```
 
 Parse the output to learn available subcommands and global options. Use this to decide:
@@ -96,7 +100,7 @@ Parse the output to learn available subcommands and global options. Use this to 
 ### 3d. Discover command-specific options
 
 ```bash
-ssh $PORT_FLAG "$SSH_HOST" "source ~/.bashrc 2>/dev/null; codver <subcommand> --help"
+ssh $PORT_FLAG "$SSH_HOST" 'eval "$(~/.codver/bin/codver load_path)" && codver <subcommand> --help'
 ```
 
 From the help output, identify required vs optional flags. Validate any flags the user mentioned against this list — warn if a flag doesn't exist.
@@ -110,7 +114,7 @@ For required flags still missing, ask the user with **AskUserQuestion**. Omit op
 Verify the remote environment before delegating:
 
 ```bash
-ssh $PORT_FLAG "$SSH_HOST" "source ~/.bashrc 2>/dev/null; codver check <any-user-provided-flags>"
+ssh $PORT_FLAG "$SSH_HOST" 'eval "$(~/.codver/bin/codver load_path)" && codver check <any-user-provided-flags>'
 ```
 
 Interpret failures for the user: missing deps → install them; no config → run `codver init`; missing API keys → set the env vars; invalid model → show the available-models list from the error; repo unreachable → check URL or `gh auth login`.
@@ -158,12 +162,12 @@ fi
 ### 6c. Launch via tmux (preferred) or nohup (fallback)
 
 ```bash
-if [ "$(ssh $PORT_FLAG "$SSH_HOST" "source ~/.bashrc 2>/dev/null; command -v tmux >/dev/null && echo yes || echo no")" = "yes" ]; then
-  ssh $PORT_FLAG "$SSH_HOST" "tmux new-session -d -s '$SESSION_NAME' 'source ~/.bashrc 2>/dev/null; cd ~ && $CMD'"
+if [ "$(ssh $PORT_FLAG "$SSH_HOST" 'eval "$(~/.codver/bin/codver load_path)" && command -v tmux >/dev/null && echo yes || echo no')" = "yes" ]; then
+  ssh $PORT_FLAG "$SSH_HOST" "tmux new-session -d -s '$SESSION_NAME' 'eval \"\$(~/.codver/bin/codver load_path)\" && cd ~ && $CMD'"
   echo "TMUX_SESSION=$SESSION_NAME"
 else
   LOG_FILE="~/codver-$SESSION_NAME.log"
-  ssh $PORT_FLAG "$SSH_HOST" "source ~/.bashrc 2>/dev/null; cd ~ && nohup $CMD > '$LOG_FILE' 2>&1 &"
+  ssh $PORT_FLAG "$SSH_HOST" "eval \"\$(~/.codver/bin/codver load_path)\" && cd ~ && nohup $CMD > '$LOG_FILE' 2>&1 &"
   echo "NOHUP_LOG=$LOG_FILE"
 fi
 ```
@@ -195,7 +199,7 @@ Task delegated to $SSH_HOST.
 | "create/setup config" | `codver init` | Use `--force` to overwrite |
 | "clean up" | `codver clean` | Run `--dry-run` first |
 
-For subcommands, run directly via SSH (no tmux/nohup) and report the output. **Remember the `source ~/.bashrc 2>/dev/null;` prefix** — the remote PATH rule applies here too.
+For subcommands, run directly via SSH (no tmux/nohup) and report the output. **Always prefix with `eval "$(~/.codver/bin/codver load_path)" &&`** — the remote PATH rule applies here too.
 
 ## Errors
 
