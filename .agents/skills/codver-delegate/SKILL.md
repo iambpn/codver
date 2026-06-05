@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires ssh, tmux (or nohup fallback), and codver CLI on the remote server. Optionally reads ~/.codever-ssh for the default SSH target.
 metadata:
   author: codever
-  version: "6.0"
+  version: "7.0"
 allowed-tools: Bash(ssh:*) Bash(bash:*) AskUserQuestion
 ---
 
@@ -22,9 +22,33 @@ Extract these components from the user's message:
 | **SSH target** | `user@host` or `user@192.168.x.x` |
 | **Subcommand** | Words like `check`, `init`, `clean` — user may want a subcommand instead of the full pipeline |
 | **Model** | `--model <value>`, "use model X" |
-| **Repo** | GitHub URL or `owner/repo` shorthand |
+| **Repo** | GitHub URL or `owner/repo` shorthand. If absent, auto-detect from the local git repo (Step 1a). |
 | **Task** | Everything else (the coding task description) |
 | **Other flags** | Any `--flag <value>` patterns (validate against `--help` later) |
+
+### 1a — Auto-detect repo URL (if not provided)
+
+If the user did **not** provide a Repo in their message, try to detect it from the local git repository:
+
+```bash
+git remote get-url origin 2>/dev/null
+```
+
+Parse the output to extract `owner/repo`:
+
+| Remote URL format | Extraction |
+|-------------------|------------|
+| `https://github.com/owner/repo.git` | Strip `https://github.com/`, strip trailing `.git` → `owner/repo` |
+| `https://github.com/owner/repo` | Strip `https://github.com/` → `owner/repo` |
+| `git@github.com:owner/repo.git` | Strip `git@github.com:`, strip trailing `.git` → `owner/repo` |
+| `ssh://git@github.com/owner/repo.git` | Strip `ssh://git@github.com/`, strip trailing `.git` → `owner/repo` |
+| Other (GitLab, Bitbucket, etc.) | Use the full remote URL as-is — the codver server's `gh repo clone` can handle any `git` clone URL |
+
+If the command fails or returns empty:
+- The local directory is not a git repo, OR
+- The `origin` remote is not configured
+
+In that case, leave Repo empty. It will be caught as a missing required input in Step 3e, and you'll ask the user.
 
 ## Step 2 — Resolve the SSH target
 
