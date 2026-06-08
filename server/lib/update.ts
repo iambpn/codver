@@ -12,7 +12,9 @@ const CONFIG_FILE = "codver.config.json";
 export async function runUpdate(): Promise<void> {
   heading("Update Codver Server");
 
-  if (!(await Bun.file(SERVER_DIR).exists())) {
+  try {
+    await Bun.file(SERVER_DIR).stat();
+  } catch {
     error(`Codver server is not installed at ${SERVER_DIR}`);
     info("Run install-codver-server.sh first.");
     process.exit(1);
@@ -21,14 +23,24 @@ export async function runUpdate(): Promise<void> {
   const configPath = path.join(SERVER_DIR, CONFIG_FILE);
   let configBak: string | null = null;
 
-  if (await Bun.file(configPath).exists()) {
+  try {
+    await Bun.file(configPath).stat();
     info(`Preserving config at ${configPath}`);
     configBak = await Bun.file(configPath).text();
+  } catch {
+    // config file does not exist — nothing to preserve
   }
 
   await spinningStep("Updating repository", async () => {
     const cacheGitDir = path.join(REPO_CACHE, ".git");
-    if (await Bun.file(cacheGitDir).exists()) {
+    let cacheExists = false;
+    try {
+      await Bun.file(cacheGitDir).stat();
+      cacheExists = true;
+    } catch {
+      // cache does not exist
+    }
+    if (cacheExists) {
       const proc = await Bun.$`git -C ${REPO_CACHE} fetch --depth 1 origin --quiet`.nothrow();
       if (proc.exitCode !== 0) {
         throw new Error(`git fetch failed: ${proc.stderr.toString()}`);
@@ -55,8 +67,11 @@ export async function runUpdate(): Promise<void> {
   const cleanupFiles = [".gitignore", "tests", "CLAUDE.md", "README.md"];
   for (const file of cleanupFiles) {
     const filePath = path.join(SERVER_DIR, file);
-    if (await Bun.file(filePath).exists()) {
+    try {
+      await Bun.file(filePath).stat();
       await rm(filePath, { recursive: true, force: true });
+    } catch {
+      // file does not exist, skip
     }
   }
 
