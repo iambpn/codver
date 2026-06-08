@@ -195,16 +195,16 @@ export async function generateDependencyInstallCommand(cwd: string, model: Model
   const result = await runAiTask(prompt, cwd, model, ["read"]);
 
   try {
-    const command = result
-      .trim()
-      .split("\n")
-      .find((line) => line.toLowerCase().startsWith("command:"));
+    // Handle both formats: `command: npm install` and `"command": "npm install"`
+    const trimmed = result.trim();
+    const match = trimmed.match(/^(?:"command"|command)\s*:\s*(.+)$/im);
+    const extracted = match ? match[1].replace(/^["']|["']$/g, "").trim() : "";
 
-    if (!command) {
+    if (!extracted) {
       warn(`No command found in AI response, full response was:\n${result}`);
       return "";
     }
-    return command.split(":").slice(1).join(":").trim();
+    return extracted;
   } catch {
     // If parsing fails, return empty string to indicate no command could be determined
     return "";

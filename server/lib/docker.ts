@@ -3,6 +3,7 @@ import path from "node:path";
 import { generateDependencyInstallCommand } from "./ai";
 import { DEV_COMPOSE_FILE, PLAN_FILE } from "./paths";
 import { info, spinningStep, step, success, warn } from "./progress";
+import { loadPromptAsync } from "../prompts";
 import type { AgentResult } from "./types";
 
 /**
@@ -107,7 +108,8 @@ export async function composeUp(cwd: string): Promise<void> {
 
 async function writePlanFile(cwd: string, promptContent: string): Promise<string> {
   const planFilePath = path.join(cwd, PLAN_FILE);
-  await Bun.write(planFilePath, promptContent);
+  const wrappedPrompt = await loadPromptAsync("agent-task", { task: promptContent });
+  await Bun.write(planFilePath, wrappedPrompt);
   return planFilePath;
 }
 
