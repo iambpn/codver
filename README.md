@@ -29,7 +29,7 @@ At least one AI provider API key set as an environment variable:
 - `OPENAI_API_KEY`
 - `OPENCODE_API_KEY`
 - `DEEPSEEK_API_KEY`
-- `GOOGLE_API_KEY`
+- `GOOGLE_API_KEY` (and optionally `GOOGLE_APPLICATION_CREDENTIALS`)
 - `MISTRAL_API_KEY`
 - `GROQ_API_KEY`
 - `XAI_API_KEY`
@@ -46,7 +46,7 @@ At least one AI provider API key set as an environment variable:
 
 ### Server (CLI)
 
-Copies the server to `~/.codver/server/`, runs `bun install`, and adds `~/.codver/server/bin` to PATH in `.bashrc`/`.zshrc`/`.profile`/fish config.
+Copies the server to `~/.codver/server/`, runs `bun install`, and adds `~/.codver/server/bin` to PATH in `.bashrc` and fish config.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/iambpn/codver/main/install-codver-server.sh | bash
@@ -121,10 +121,15 @@ codver --repo https://github.com/owner/repo --prompt "Refactor the database laye
 | Command | Description |
 |---------|-------------|
 | `codver check` | Verify host deps, config, API keys, model, and repo access |
+| `codver check --config <path>` | Check with a custom config file |
+| `codver check --model <provider/id>` | Validate a specific model |
+| `codver check --repo <url>` | Verify repository accessibility |
 | `codver init` | Generate `~/.config/codver/codver.config.json` |
 | `codver init --force` | Overwrite existing config |
-| `codver clean` | Remove cloned repos under `~/.codver-dev/` (preserves config) |
-| `codver clean --all` | Full cleanup including Docker artifacts |
+| `codver init --path <path>` | Write config to a custom path |
+| `codver clean` | Full cleanup of `~/.codver-dev/` (same as `--all`; preserves config) |
+| `codver clean --all` | Full cleanup of `~/.codver-dev/` (preserves config) |
+| `codver clean --home` | Remove only `~/.codver-dev/` (cloned repos) |
 | `codver clean --dry-run` | Preview what would be removed |
 
 ### Examples

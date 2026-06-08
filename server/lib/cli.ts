@@ -19,7 +19,7 @@ export function addMainOptions(cmd: Command): Command {
     .option("--prompt-file <path>", "Path to a prompt file (mutually exclusive with --prompt)")
     .option("--new-branch <name>", "Name for the new branch (auto-generated if omitted)")
     .option("--from-branch <name>", "Base branch to work from (defaults to repo's default branch)")
-    .option("--config <path>", "Path to a config JSON file (default: ~/.config/.codver)");
+    .option("--config <path>", "Path to a config JSON file (default: ~/.config/codver/codver.config.json)");
 }
 
 export function validateCliOpts(opts: Record<string, unknown>): CliArgs {
@@ -54,7 +54,7 @@ export function parseCliArgs(argv?: string[]): CliArgs {
     .name("codver")
     .description("Codver — Code Agent Runner. Clones a GitHub repo, sets up a sandboxed Docker dev environment, runs a pi agent task, and creates a PR with the changes.")
     .addHelpText("after", `
-Configuration file (~/.config/.codver):
+Configuration file (~/.config/codver/codver.config.json):
   The config file is optional. When present, it may contain:
 
     gitUserName     Git user.name to set in the cloned repo (local config)

@@ -16,7 +16,7 @@ program
   .addHelpText(
     "after",
     `
-Configuration file (~/.config/.codver):
+Configuration file (~/.config/codver/codver.config.json):
   The config file is optional. When present, it may contain:
 
     gitUserName     Git user.name to set in the cloned repo (local config)
