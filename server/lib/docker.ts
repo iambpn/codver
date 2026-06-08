@@ -167,7 +167,11 @@ export async function installDependency(
     "sh",
     "-c",
     depInstallCommand,
-  ]);
+  ], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   if (installResult.exitCode !== 0) {
     const errMsg = installResult.stderr.toString() || installResult.stdout.toString();
     warn(`Dependency installation had issues: ${errMsg}`);
