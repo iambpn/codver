@@ -124,11 +124,41 @@ Interpret failures for the user: missing deps → install them; no config → ru
 ## Step 5 — Determine the model
 
 1. Use the user-specified model if provided.
-2. Otherwise, detect from the current session and map to `provider/model-id` format:
-   - `deepseek-v4-pro` → `opencode-go/deepseek-v4-pro`
-   - `claude-sonnet-4-6` → `anthropic/claude-sonnet-4-20250514`
-   - `claude-opus-4-8` → `anthropic/claude-opus-4-8`
-3. Fall back: leave `MODEL` empty; the remote uses its `defaultModel` from config.
+2. Otherwise, query the remote for available models and ask the user to pick one:
+
+### 5a — Query available models on the remote
+
+```bash
+ssh $PORT_FLAG "$SSH_HOST" 'eval "$(~/.codver/server/bin/codver load_path)" && codver models'
+```
+
+Parse the output to extract each model as `provider/id (name)`. Each model line follows the format:
+
+```
+  →   provider/id (Display Name)
+```
+
+Collect all `provider/id` entries into a list.
+
+### 5b — Ask the user
+
+Use **AskUserQuestion** (header: "Select Model") with the parsed model list as options. Include a "Use remote default" option as the first choice.
+
+The label for each option should be the `provider/id` string. The description should be the model's display name (from parentheses).
+
+Example options:
+| Label | Description |
+|-------|-------------|
+| (Use remote default) | Let the remote server use its defaultModel from config |
+| opencode-go/deepseek-v4-pro | DeepSeek V4 Pro |
+| opencode-go/glm-5.1 | GLM-5.1 |
+| anthropic/claude-sonnet-4-6 | Claude Sonnet 4.6 |
+
+If the user selects "Use remote default", set `MODEL=""` (leave empty).
+
+### 5c — Fallback
+
+If `codver models` fails (e.g., old codver version without the command), fall back to leaving `MODEL` empty; the remote uses its `defaultModel` from config.
 
 ## Step 6 — Delegate (fire-and-forget)
 
@@ -197,6 +227,7 @@ Task delegated to $SSH_HOST.
 |------------|---------|-------|
 | "check the server" | `codver check` | Optionally forward `--model`, `--repo` |
 | "create/setup config" | `codver init` | Use `--force` to overwrite |
+| "list models" | `codver models` | Used in Step 5 to query available models |
 | "clean up" | `codver clean` | Run `--dry-run` first |
 
 For subcommands, run directly via SSH (no tmux/nohup) and report the output. **Always prefix with `eval "$(~/.codver/server/bin/codver load_path)" &&`** — the remote PATH rule applies here too.

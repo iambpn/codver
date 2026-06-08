@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { addCheckOptions, runCheck } from "./lib/check";
 import { addCleanOptions, runClean } from "./lib/clean";
 import { addInitOptions, runInit } from "./lib/init";
+import { listModels } from "./lib/models";
 import { addMainOptions, validateCliOpts, ValidationError } from "./lib/cli";
 import { main } from "./lib/pipeline";
 import { error } from "./lib/progress";
@@ -47,6 +48,9 @@ Examples:
   $ codver init --force            # overwrite existing config
   $ codver check                   # verify host deps, config, and provider API keys
   $ codver check --config ./my.json
+  $ codver models                  # list models with configured API keys
+  $ codver models --all            # list all registered models
+  $ codver models --all --provider anthropic
 `,
   );
 
@@ -131,6 +135,30 @@ addCheckOptions(checkCmd);
 
 checkCmd.action(async (opts) => {
   await runCheck({ configPath: opts.config, model: opts.model, repo: opts.repo });
+});
+
+const modelsCmd = program
+  .command("models")
+  .description("List available AI models")
+  .option("--all", "List all registered models (not just those with configured API keys)")
+  .option("--provider <name>", "Filter models by provider (e.g., anthropic, openai)")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ codver models                  # list models with configured API keys
+  $ codver models --all            # list all registered models
+  $ codver models --all --provider anthropic
+`,
+  );
+
+modelsCmd.action(async (opts) => {
+  try {
+    await listModels({ all: !!opts.all, provider: opts.provider });
+  } catch (err) {
+    error(`Models listing failed: ${err}`);
+    process.exit(1);
+  }
 });
 
 program.parseAsync().catch((err) => {
