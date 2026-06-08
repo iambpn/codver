@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { addCheckOptions, runCheck } from "./lib/check";
 import { addCleanOptions, runClean } from "./lib/clean";
 import { addInitOptions, runInit } from "./lib/init";
+import { runUpdate } from "./lib/update";
 import { listModels } from "./lib/models";
 import { addMainOptions, validateCliOpts, ValidationError } from "./lib/cli";
 import { main } from "./lib/pipeline";
@@ -51,6 +52,7 @@ Examples:
   $ codver models                  # list models with configured API keys
   $ codver models --all            # list all registered models
   $ codver models --all --provider anthropic
+  $ codver update                  # update codver server to the latest version
 `,
   );
 
@@ -157,6 +159,26 @@ modelsCmd.action(async (opts) => {
     await listModels({ all: !!opts.all, provider: opts.provider });
   } catch (err) {
     error(`Models listing failed: ${err}`);
+    process.exit(1);
+  }
+});
+
+const updateCmd = program
+  .command("update")
+  .description("Update the codver server to the latest version")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ codver update
+`,
+  );
+
+updateCmd.action(async () => {
+  try {
+    await runUpdate();
+  } catch (err) {
+    error(`Update failed: ${err}`);
     process.exit(1);
   }
 });
