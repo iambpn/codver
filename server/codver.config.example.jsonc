@@ -1,5 +1,0 @@
-{
-  "gitUserName": "Your Name", // optional
-  "gitUserEmail": "your.email@example.com", // optional
-  "defaultModel": "anthropic/claude-sonnet-4-20250514" // optional - model to be used for generative task
-}
