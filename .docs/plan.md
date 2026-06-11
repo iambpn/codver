@@ -18,7 +18,7 @@ A remote AI execution server that allows clients to submit coding tasks to a rem
 ### High-Level Flow
 
 ```
-Client (CLI) → HTTPS → Server (API) → Job Queue
+Client (CLI) → HTTP → Server (API) → Job Queue
                                           ↓
                                     Clone Repo
                                           ↓
@@ -48,7 +48,7 @@ Client (CLI) → HTTPS → Server (API) → Job Queue
 - Monitors job status and logs
 
 **Server (API + Job Processor)**
-- Node.js + Express with HTTPS
+- Node.js + Express with HTTP (HTTPS handled by nginx reverse proxy)
 - API key authentication
 - SQLite database for jobs and logs
 - Job queue (in-memory → BullMQ in Phase 9)
@@ -157,10 +157,10 @@ pnpm install
 
 # Start server
 pnpm dev:server
-# > Server running on https://localhost:3000
+# > Server running on http://localhost:3000
 
 # Test health endpoint
-curl -k https://localhost:3000/health
+curl http://localhost:3000/health
 # 200 OK { "status": "healthy" }
 
 # Start client
@@ -174,14 +174,14 @@ pnpm lint
 
 ## Phase 2: Server API Core
 
-**Goal:** HTTPS server with API key authentication and SQLite database.
+**Goal:** HTTP server with API key authentication and SQLite database. HTTPS is handled by a reverse proxy (e.g., nginx) in production.
 
 ### Tasks
 
-1. **HTTPS Setup**
-   - Generate self-signed certificates for development
-   - Configure Express with `https.createServer()`
-   - Document production certificate setup (Let's Encrypt, Cloudflare, etc.)
+1. **HTTP Server Setup**
+   - Express app listening on HTTP
+   - Trust proxy when behind nginx (`trust proxy: 1`)
+   - Document nginx reverse proxy setup
 
 2. **Environment Configuration**
    - `dotenv` for environment variables
@@ -259,22 +259,23 @@ pnpm lint
 ### Testable Deliverables
 
 ```bash
-# Generate API key
-curl -k -X POST https://localhost:3000/api-keys \
+# Generate API key (admin endpoint)
+curl -X POST http://localhost:3000/api-keys \
   -H "Content-Type: application/json" \
+  -H "X-Admin-Secret: admin-secret" \
   -d '{"name":"dev-key"}'
 # 201 Created { "key": "codv_abc123..." }
 
 # Test health without auth
-curl -k https://localhost:3000/health
+curl http://localhost:3000/health
 # 401 Unauthorized
 
 # Test health with auth
-curl -k -H "X-API-Key: codv_abc123..." https://localhost:3000/health
+curl -H "X-API-Key: codv_abc123..." http://localhost:3000/health
 # 200 OK { "status": "healthy", "version": "0.1.0" }
 
 # Create a job
-curl -k -H "X-API-Key: codv_abc123..." -X POST https://localhost:3000/jobs \
+curl -H "X-API-Key: codv_abc123..." -X POST http://localhost:3000/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "repoUrl": "https://github.com/test/repo",
@@ -284,7 +285,7 @@ curl -k -H "X-API-Key: codv_abc123..." -X POST https://localhost:3000/jobs \
 # 201 Created { "jobId": "abc123", "status": "pending" }
 
 # Get job status
-curl -k -H "X-API-Key: codv_abc123..." https://localhost:3000/jobs/abc123
+curl -H "X-API-Key: codv_abc123..." http://localhost:3000/jobs/abc123
 # 200 OK { "id": "abc123", "status": "pending", ... }
 ```
 

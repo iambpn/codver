@@ -1,0 +1,29 @@
+{
+  "name": "codver",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remote AI execution server using the Pi agent to work on tasks inside Docker sandboxes, then automatically creates GitHub pull requests with the results.",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:server": "pnpm --filter server dev",
+    "dev:client": "pnpm --filter client dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.14.0",
+    "eslint": "^9.5.0",
+    "typescript-eslint": "^8.0.0",
+    "globals": "^15.4.0",
+    "prettier": "^3.3.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.2.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
