@@ -4,7 +4,7 @@
   "private": true,
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -r src/templates dist/templates",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
@@ -12,21 +12,22 @@
     "test": "echo \"No tests yet\" && exit 0"
   },
   "dependencies": {
-    "express": "^4.19.0",
-    "dotenv": "^16.4.0",
-    "zod": "^3.23.0",
+    "@codver/shared-types": "workspace:*",
     "better-sqlite3": "^11.0.0",
+    "cors": "^2.8.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "express-rate-limit": "^7.3.0",
     "pino": "^9.2.0",
     "pino-http": "^10.1.0",
-    "express-rate-limit": "^7.3.0",
-    "cors": "^2.8.0",
-    "@codver/shared-types": "workspace:*"
+    "simple-git": "^3.36.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@types/express": "^4.17.0",
-    "@types/node": "^20.14.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/cors": "^2.8.0",
+    "@types/express": "^4.17.0",
+    "@types/node": "^20.14.0",
     "tsx": "^4.15.0",
     "typescript": "^5.5.0"
   }

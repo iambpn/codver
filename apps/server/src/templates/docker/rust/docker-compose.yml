@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  codver-pi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${IMAGE_NAME}
+    container_name: ${CONTAINER_NAME}
+    volumes:
+      - ${PROJECT_DIR}:/workspace
+    working_dir: /workspace
+    environment:
+      - PI_PROMPT=${PI_PROMPT}
+      - PI_MODEL=${PI_MODEL}
+    env_file:
+      - .env
+    cpus: ${CPU_LIMIT}
+    mem_limit: ${MEMORY_LIMIT}
+    restart: "no"
+    network_mode: bridge
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m

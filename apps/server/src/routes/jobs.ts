@@ -1,11 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../database';
 import { BadRequestError, NotFoundError } from '../utils/errors';
+import { enqueueJob } from '../services/queue';
 import crypto from 'crypto';
 
 const router: Router = Router();
 
-router.post('/', (req: Request, res: Response, next: NextFunction) => {
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { repoUrl, branch, prompt, model } = req.body || {};
 
@@ -23,6 +24,11 @@ router.post('/', (req: Request, res: Response, next: NextFunction) => {
       'INSERT INTO jobs (id, repo_url, branch, prompt, model, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(id, repoUrl, branch || null, prompt, model || null, 'pending', now, now);
 
+    // Enqueue the job for background processing
+    enqueueJob(id).catch((err) => {
+      console.error(`[Job-${id}] Enqueue/Processing failed:`, err);
+    });
+
     res.status(201).json({
       success: true,
       data: { jobId: id, status: 'pending' },
@@ -35,7 +41,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction) => {
 router.get('/', (_req: Request, res: Response, next: NextFunction) => {
   try {
     const jobs = db
-      .prepare('SELECT id, repo_url, branch, prompt, model, status, pr_url, created_at, updated_at FROM jobs ORDER BY created_at DESC')
+      .prepare('SELECT id, repo_url, branch, prompt, model, status, language, docker_image, pr_url, pr_branch, pr_title, pr_description, pr_author, error_message, started_at, completed_at, created_at, updated_at FROM jobs ORDER BY created_at DESC')
       .all();
     res.status(200).json({ success: true, data: jobs });
   } catch (err) {
@@ -47,7 +53,7 @@ router.get('/:id', (req: Request, res: Response, next: NextFunction) => {
   try {
     const job = db
       .prepare(
-        'SELECT id, repo_url, branch, prompt, model, status, pr_url, error_message, created_at, updated_at FROM jobs WHERE id = ?',
+        'SELECT id, repo_url, branch, prompt, model, status, language, docker_image, pr_url, pr_branch, pr_title, pr_description, pr_author, error_message, started_at, completed_at, created_at, updated_at FROM jobs WHERE id = ?',
       )
       .get(req.params.id) as Record<string, unknown> | undefined;
 
@@ -73,6 +79,63 @@ router.get('/:id/logs', (req: Request, res: Response, next: NextFunction) => {
       .all(req.params.id);
 
     res.status(200).json({ success: true, data: logs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/logs/stream', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const job = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(req.params.id) as
+      | { id: string; status: string }
+      | undefined;
+    if (!job) {
+      throw new NotFoundError('Job not found');
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Send all existing logs immediately
+    const logs = db
+      .prepare('SELECT id, timestamp, level, message FROM job_logs WHERE job_id = ? ORDER BY timestamp ASC')
+      .all(req.params.id) as { id: number; timestamp: number; level: string; message: string }[];
+
+    for (const log of logs) {
+      res.write(`data: ${JSON.stringify(log)}\n\n`);
+    }
+
+    // If job is still active, poll for new logs
+    const runningStatuses = ['pending', 'cloning', 'detecting_language', 'generating_docker', 'building_image', 'ready', 'running', 'creating_pr'];
+    if (runningStatuses.includes(job.status)) {
+      let lastId = logs.length > 0 ? logs[logs.length - 1].id : 0;
+      const interval = setInterval(() => {
+        const newLogs = db
+          .prepare('SELECT id, timestamp, level, message FROM job_logs WHERE job_id = ? AND id > ? ORDER BY timestamp ASC')
+          .all(req.params.id, lastId) as { id: number; timestamp: number; level: string; message: string }[];
+
+        for (const log of newLogs) {
+          res.write(`data: ${JSON.stringify(log)}\n\n`);
+          lastId = log.id;
+        }
+
+        // Check if job is still running
+        const current = db.prepare('SELECT status FROM jobs WHERE id = ?').get(req.params.id) as { status: string } | undefined;
+        if (!current || !runningStatuses.includes(current.status)) {
+          clearInterval(interval);
+          res.write('event: close\ndata: {}\n\n');
+          res.end();
+        }
+      }, 2000);
+
+      req.on('close', () => {
+        clearInterval(interval);
+      });
+    } else {
+      res.write('event: close\ndata: {}\n\n');
+      res.end();
+    }
   } catch (err) {
     next(err);
   }

@@ -5,7 +5,40 @@ interface Migration {
   sql: string;
 }
 
-const migrations: Migration[] = [];
+const migrations: Migration[] = [
+  {
+    name: 'add_jobs_language_column',
+    sql: `ALTER TABLE jobs ADD COLUMN language TEXT;`,
+  },
+  {
+    name: 'add_jobs_image_column',
+    sql: `ALTER TABLE jobs ADD COLUMN docker_image TEXT;`,
+  },
+  {
+    name: 'add_jobs_started_at_column',
+    sql: `ALTER TABLE jobs ADD COLUMN started_at INTEGER;`,
+  },
+  {
+    name: 'add_jobs_completed_at_column',
+    sql: `ALTER TABLE jobs ADD COLUMN completed_at INTEGER;`,
+  },
+  {
+    name: 'add_jobs_pr_branch_column',
+    sql: `ALTER TABLE jobs ADD COLUMN pr_branch TEXT;`,
+  },
+  {
+    name: 'add_jobs_pr_title_column',
+    sql: `ALTER TABLE jobs ADD COLUMN pr_title TEXT;`,
+  },
+  {
+    name: 'add_jobs_pr_description_column',
+    sql: `ALTER TABLE jobs ADD COLUMN pr_description TEXT;`,
+  },
+  {
+    name: 'add_jobs_pr_author_column',
+    sql: `ALTER TABLE jobs ADD COLUMN pr_author TEXT;`,
+  },
+];
 
 export function runMigrations(): void {
   const applied = db.prepare('SELECT name FROM migrations').all() as { name: string }[];
