@@ -1,20 +1,15 @@
 #!/usr/bin/env node
 
-/**
- * Pi SDK Executor Script
- *
- * Runs the Pi agent using the Pi SDK inside a Docker container.
- * Reads prompt and model from environment variables.
- * Logs structured events to /workspace/.codver-pi-logs.jsonl
- * Exits with code 0 on success, 1 on failure.
- */
-
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
 const prompt = process.env.PI_PROMPT || '';
 const model = process.env.PI_MODEL || '';
+const provider = process.env.PI_PROVIDER || '';
+const thinkingLevel = process.env.PI_THINKING_LEVEL || '';
+const imagesRaw = process.env.PI_IMAGES || '';
+const customEnvVars = process.env.CUSTOM_ENV_VARS || '';
 const logFile = path.join('/workspace', '.codver-pi-logs.jsonl');
 
 function logEvent(level, message, data = {}) {
@@ -38,13 +33,55 @@ function getModifiedFiles() {
       .filter((line) => line.length > 0)
       .map((line) => line.split(/\s+/).pop())
       .filter((file) => {
-        // Exclude Docker files added by Codver
         const excluded = ['Dockerfile', 'docker-compose.yml', 'executor.js', '.env'];
         return !excluded.includes(file);
       });
   } catch {
     return [];
   }
+}
+
+function parseImages() {
+  if (!imagesRaw) return [];
+  try {
+    const images = JSON.parse(imagesRaw);
+    if (Array.isArray(images)) {
+      return images.map((img) => ({
+        filename: img.filename || 'unknown',
+        data: img.data || '',
+        mediaType: img.mediaType || 'image/png',
+      }));
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return [];
+}
+
+function parseCustomEnvVars() {
+  if (!customEnvVars) return {};
+  try {
+    return JSON.parse(customEnvVars);
+  } catch {
+    return {};
+  }
+}
+
+function buildEnhancedPrompt(images) {
+  let enhancedPrompt = prompt;
+
+  if (images.length > 0) {
+    enhancedPrompt += '\n\nAttached images:\n';
+    for (const img of images) {
+      enhancedPrompt += `- ${img.filename} (${img.mediaType})\n`;
+    }
+  }
+
+  if (thinkingLevel) {
+    enhancedPrompt += `\n\nThinking level: ${thinkingLevel}`;
+  }
+
+  return enhancedPrompt;
 }
 
 async function runMockAgent() {
@@ -59,15 +96,25 @@ async function runMockAgent() {
 }
 
 async function runPiSdkAgent() {
-  const { createAgentSession } = require('@earendil-works/pi-coding-agent');
+  const { createAgentSession, ImageContent } = require('@earendil-works/pi-coding-agent');
 
-  const session = createAgentSession({
-    prompt,
+  const images = parseImages();
+  const enhancedPrompt = buildEnhancedPrompt(images);
+
+  logEvent('info', `Creating session with model: ${model || 'default'}, provider: ${provider || 'default'}`);
+
+  const sessionConfig = {
+    prompt: enhancedPrompt,
     model: model || undefined,
     workspace: '/workspace',
-  });
+  };
 
-  // Subscribe to events
+  if (provider) {
+    sessionConfig.provider = provider;
+  }
+
+  const session = createAgentSession(sessionConfig);
+
   session.on('event', (event) => {
     if (event.type === 'tool_call') {
       const tool = event.tool || event.name || 'unknown';
@@ -92,6 +139,16 @@ async function main() {
   logEvent('info', 'Pi Agent executor starting');
   logEvent('info', `Prompt length: ${prompt.length} chars`);
   logEvent('info', `Model: ${model || 'default'}`);
+  logEvent('info', `Provider: ${provider || 'default'}`);
+  logEvent('info', `Thinking level: ${thinkingLevel || 'default'}`);
+
+  const images = parseImages();
+  logEvent('info', `Images attached: ${images.length}`);
+
+  const customEnv = parseCustomEnvVars();
+  if (Object.keys(customEnv).length > 0) {
+    logEvent('info', `Custom env vars: ${Object.keys(customEnv).join(', ')}`);
+  }
 
   try {
     let usingSdk = false;

@@ -10,8 +10,13 @@ export interface TemplateContext {
   projectDir: string;
   piPrompt: string;
   piModel?: string | null;
+  piProvider?: string | null;
+  piThinkingLevel?: string | null;
+  piImages?: string | null;
   cpuLimit?: string;
   memoryLimit?: string;
+  networkAccess?: string;
+  envVars?: string | null;
   apiKeys?: Record<string, string>;
 }
 
@@ -42,9 +47,23 @@ export async function generateDotEnv(
     `PROJECT_DIR=${context.projectDir}`,
     `PI_PROMPT=${context.piPrompt.replace(/\n/g, '\\n').replace(/"/g, '\\"')}`,
     `PI_MODEL=${context.piModel || ''}`,
+    `PI_PROVIDER=${context.piProvider || ''}`,
+    `PI_THINKING_LEVEL=${context.piThinkingLevel || ''}`,
     `CPU_LIMIT=${context.cpuLimit || '2'}`,
     `MEMORY_LIMIT=${context.memoryLimit || '4g'}`,
   ];
+
+  if (context.piImages) {
+    lines.push(`PI_IMAGES=${context.piImages}`);
+  }
+
+  if (context.networkAccess) {
+    lines.push(`NETWORK_ACCESS=${context.networkAccess}`);
+  }
+
+  if (context.envVars) {
+    lines.push(`CUSTOM_ENV_VARS=${context.envVars}`);
+  }
 
   // Dynamically add all API keys from context
   for (const [key, value] of Object.entries(context.apiKeys || {})) {

@@ -38,6 +38,19 @@ const migrations: Migration[] = [
     name: 'add_jobs_pr_author_column',
     sql: `ALTER TABLE jobs ADD COLUMN pr_author TEXT;`,
   },
+  // Phase 8: Error Handling & Failure PRs
+  {
+    name: 'add_jobs_error_type_column',
+    sql: `ALTER TABLE jobs ADD COLUMN error_type TEXT;`,
+  },
+  {
+    name: 'add_jobs_retry_count_column',
+    sql: `ALTER TABLE jobs ADD COLUMN retry_count INTEGER DEFAULT 0;`,
+  },
+  {
+    name: 'add_jobs_error_pr_url_column',
+    sql: `ALTER TABLE jobs ADD COLUMN error_pr_url TEXT;`,
+  },
 ];
 
 export function runMigrations(): void {

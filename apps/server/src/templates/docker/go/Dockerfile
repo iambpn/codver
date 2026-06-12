@@ -1,22 +1,23 @@
-# Base image for Go projects
 FROM golang:1.23-alpine
 
-# Install system dependencies including Node.js
-RUN apk add --no-cache git curl ca-certificates nodejs npm
+RUN apk add --no-cache git curl ca-certificates nodejs npm bash ripgrep
+RUN apk add --no-cache --virtual .build-dependencies shadow
 
-# Create non-root user
-RUN adduser -D -s /bin/sh codver
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent \
+    && npm cache clean --force
 
-# Set working directory
+RUN groupadd -g 1000 codver \
+    && useradd -u 1000 -g 1000 -m -s /bin/bash -d /home/codver codver \
+    && apk del .build-dependencies
+
 WORKDIR /workspace
 
-# Copy executor script
-COPY executor.js /executor.js
+COPY --chown=codver:codver executor.js /executor.js
+RUN chmod 755 /executor.js
 
-# Set permissions
-RUN chown -R codver:codver /workspace
+USER codver:codver
 
-USER codver
+ENV NODE_OPTIONS="--max-old-space-size=3072"
+ENV NPM_CONFIG_LOGLEVEL=warn
 
-# Default command
-CMD ["node", "/executor.js"]
+ENTRYPOINT ["node", "/executor.js"]

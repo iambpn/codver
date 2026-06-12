@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { db } from '../database';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { enqueueJob } from '../services/queue';
@@ -6,23 +7,68 @@ import crypto from 'crypto';
 
 const router: Router = Router();
 
+const ImageSchema = z.object({
+  filename: z.string(),
+  data: z.string(),
+  mediaType: z.string().regex(/^image\/(png|jpeg|jpg|gif|webp)$/),
+});
+
+const JobRequestSchema = z.object({
+  repoUrl: z.string().min(1, 'repoUrl is required'),
+  branch: z.string().optional(),
+  prompt: z.string().min(1, 'prompt is required'),
+  model: z.string().optional(),
+  provider: z.string().optional(),
+  thinkingLevel: z.string().optional(),
+  images: z.array(ImageSchema).max(10).optional(),
+  additionalFiles: z.array(z.string()).optional(),
+  webhookUrl: z.string().url().optional(),
+  timeoutMs: z.number().int().min(60000).max(3600000 * 4).optional(),
+  memoryLimit: z.string().optional(),
+  cpuLimit: z.string().optional(),
+  networkAccess: z.string().optional(),
+  envVars: z.record(z.string()).optional(),
+});
+
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { repoUrl, branch, prompt, model } = req.body || {};
+    const parseResult = JobRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const issues = parseResult.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+      throw new BadRequestError(`Invalid request: ${issues}`);
+    }
 
-    if (!repoUrl || typeof repoUrl !== 'string') {
-      throw new BadRequestError('repoUrl is required');
-    }
-    if (!prompt || typeof prompt !== 'string') {
-      throw new BadRequestError('prompt is required');
-    }
+    const data = parseResult.data;
 
     const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
     const now = Date.now();
 
     db.prepare(
-      'INSERT INTO jobs (id, repo_url, branch, prompt, model, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, repoUrl, branch || null, prompt, model || null, 'pending', now, now);
+      `INSERT INTO jobs (
+        id, repo_url, branch, prompt, model, provider, thinking_level,
+        images, additional_files, webhook_url, timeout_ms, memory_limit,
+        cpu_limit, network_access, env_vars, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      data.repoUrl,
+      data.branch || null,
+      data.prompt,
+      data.model || null,
+      data.provider || null,
+      data.thinkingLevel || null,
+      data.images ? JSON.stringify(data.images) : null,
+      data.additionalFiles ? JSON.stringify(data.additionalFiles) : null,
+      data.webhookUrl || null,
+      data.timeoutMs || null,
+      data.memoryLimit || null,
+      data.cpuLimit || null,
+      data.networkAccess || null,
+      data.envVars ? JSON.stringify(data.envVars) : null,
+      'pending',
+      now,
+      now,
+    );
 
     // Enqueue the job for background processing
     enqueueJob(id).catch((err) => {
@@ -41,9 +87,55 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
 router.get('/', (_req: Request, res: Response, next: NextFunction) => {
   try {
     const jobs = db
-      .prepare('SELECT id, repo_url, branch, prompt, model, status, language, docker_image, pr_url, pr_branch, pr_title, pr_description, pr_author, error_message, started_at, completed_at, created_at, updated_at FROM jobs ORDER BY created_at DESC')
+      .prepare(
+        `SELECT id, repo_url, branch, prompt, model, status, language, docker_image,
+          pr_url, pr_branch, pr_title, pr_description, pr_author,
+          error_message, error_type, retry_count, error_pr_url,
+          started_at, completed_at, created_at, updated_at
+        FROM jobs ORDER BY created_at DESC`,
+      )
       .all();
     res.status(200).json({ success: true, data: jobs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/stats', (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const total = (db.prepare('SELECT COUNT(*) as count FROM jobs').get() as { count: number }).count;
+
+    const byStatus = db.prepare(`
+      SELECT status, COUNT(*) as count
+      FROM jobs
+      GROUP BY status
+    `).all() as { status: string; count: number }[];
+
+    const avgResult = db.prepare(`
+      SELECT AVG(completed_at - created_at) as avg
+      FROM jobs
+      WHERE completed_at IS NOT NULL
+    `).get() as { avg: number | null };
+
+    const totalCompleted = (db.prepare(`
+      SELECT COUNT(*) as count FROM jobs WHERE completed_at IS NOT NULL
+    `).get() as { count: number }).count;
+
+    const completedCount = (db.prepare(`
+      SELECT COUNT(*) as count FROM jobs WHERE status = 'completed'
+    `).get() as { count: number }).count;
+
+    const successRate = totalCompleted > 0 ? (completedCount / totalCompleted) * 100 : 0;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total,
+        byStatus,
+        avgDuration: avgResult.avg,
+        successRate,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -53,7 +145,12 @@ router.get('/:id', (req: Request, res: Response, next: NextFunction) => {
   try {
     const job = db
       .prepare(
-        'SELECT id, repo_url, branch, prompt, model, status, language, docker_image, pr_url, pr_branch, pr_title, pr_description, pr_author, error_message, started_at, completed_at, created_at, updated_at FROM jobs WHERE id = ?',
+        `SELECT id, repo_url, branch, prompt, model, provider, thinking_level,
+          status, language, docker_image,
+          pr_url, pr_branch, pr_title, pr_description, pr_author,
+          error_message, error_type, retry_count, error_pr_url,
+          started_at, completed_at, created_at, updated_at
+        FROM jobs WHERE id = ?`,
       )
       .get(req.params.id) as Record<string, unknown> | undefined;
 
@@ -96,6 +193,7 @@ router.get('/:id/logs/stream', (req: Request, res: Response, next: NextFunction)
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
 
     // Send all existing logs immediately
     const logs = db
@@ -124,7 +222,7 @@ router.get('/:id/logs/stream', (req: Request, res: Response, next: NextFunction)
         const current = db.prepare('SELECT status FROM jobs WHERE id = ?').get(req.params.id) as { status: string } | undefined;
         if (!current || !runningStatuses.includes(current.status)) {
           clearInterval(interval);
-          res.write('event: close\ndata: {}\n\n');
+          res.write('event: done\ndata: {}\n\n');
           res.end();
         }
       }, 2000);
@@ -133,7 +231,7 @@ router.get('/:id/logs/stream', (req: Request, res: Response, next: NextFunction)
         clearInterval(interval);
       });
     } else {
-      res.write('event: close\ndata: {}\n\n');
+      res.write('event: done\ndata: {}\n\n');
       res.end();
     }
   } catch (err) {

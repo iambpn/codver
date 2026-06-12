@@ -9,6 +9,7 @@ interface JobRow {
   branch?: string;
   status: string;
   pr_url?: string;
+  error_pr_url?: string;
   created_at: number;
 }
 
@@ -33,7 +34,7 @@ export function createJobsCommand(): Command {
           const maxRepo = Math.max(...res.data.map((j) => j.repo_url.length), MIN_REPO_WIDTH);
           const maxStatus = Math.max(...res.data.map((j) => j.status.length), MIN_STATUS_WIDTH);
 
-          const header = `${'ID'.padEnd(maxId)}  ${'REPO'.padEnd(maxRepo)}  ${'STATUS'.padEnd(maxStatus)}  CREATED`;
+          const header = `${'ID'.padEnd(maxId)}  ${'REPO'.padEnd(maxRepo)}  ${'STATUS'.padEnd(maxStatus)}  PR/ERROR PR`;
           console.log(chalk.bold(header));
           console.log(chalk.bold('-'.repeat(header.length)));
 
@@ -47,8 +48,10 @@ export function createJobsCommand(): Command {
                     ? chalk.blue
                     : chalk.yellow;
 
+            const prLink = job.pr_url || job.error_pr_url || '-';
+
             console.log(
-              `${job.id.padEnd(maxId)}  ${job.repo_url.padEnd(maxRepo)}  ${statusColor(job.status.padEnd(maxStatus))}  ${new Date(job.created_at).toLocaleString()}`,
+              `${job.id.padEnd(maxId)}  ${job.repo_url.padEnd(maxRepo)}  ${statusColor(job.status.padEnd(maxStatus))}  ${prLink}`,
             );
           }
         } else {

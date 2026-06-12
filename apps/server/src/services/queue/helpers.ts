@@ -17,7 +17,7 @@ export function logJobMessage(jobId: string, level: 'info' | 'error' | 'warn' | 
 export function updateJobStatus(
   jobId: string,
   status: string,
-  updates?: { prUrl?: string; errorMessage?: string },
+  updates?: { prUrl?: string; errorMessage?: string; errorType?: string; retryCount?: number; errorPrUrl?: string },
 ): void {
   try {
     const now = Date.now();
@@ -32,10 +32,43 @@ export function updateJobStatus(
       fields.push('error_message = ?');
       values.push(updates.errorMessage || null);
     }
+    if (updates?.errorType !== undefined) {
+      fields.push('error_type = ?');
+      values.push(updates.errorType || null);
+    }
+    if (updates?.retryCount !== undefined) {
+      fields.push('retry_count = ?');
+      values.push(updates.retryCount);
+    }
+    if (updates?.errorPrUrl !== undefined) {
+      fields.push('error_pr_url = ?');
+      values.push(updates.errorPrUrl || null);
+    }
 
     values.push(jobId);
     db.prepare(`UPDATE jobs SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   } catch (err) {
     console.error(`[Job-${jobId}] Failed to update status:`, err);
+  }
+}
+
+export function incrementRetryCount(jobId: string): number {
+  try {
+    db.prepare('UPDATE jobs SET retry_count = retry_count + 1 WHERE id = ?').run(jobId);
+    const job = db.prepare('SELECT retry_count FROM jobs WHERE id = ?').get(jobId) as { retry_count: number } | undefined;
+    return job?.retry_count || 0;
+  } catch (err) {
+    console.error(`[Job-${jobId}] Failed to increment retry count:`, err);
+    return 0;
+  }
+}
+
+export function getRetryCount(jobId: string): number {
+  try {
+    const job = db.prepare('SELECT retry_count FROM jobs WHERE id = ?').get(jobId) as { retry_count: number } | undefined;
+    return job?.retry_count || 0;
+  } catch (err) {
+    console.error(`[Job-${jobId}] Failed to get retry count:`, err);
+    return 0;
   }
 }

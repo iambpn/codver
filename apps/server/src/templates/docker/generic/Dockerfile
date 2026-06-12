@@ -1,26 +1,29 @@
-# Base image for generic projects
 FROM node:24-bookworm-slim
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    curl \
+    gh \
+    ripgrep \
+    bash \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Create non-root user
-RUN useradd -m -s /bin/bash codver
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent \
+    && npm cache clean --force
 
-# Set working directory
+RUN groupadd -g 1000 codver \
+    && useradd -u 1000 -g 1000 -m -s /bin/bash -d /home/codver codver
+
 WORKDIR /workspace
 
-# Copy executor script
-COPY executor.js /executor.js
+COPY --chown=codver:codver executor.js /executor.js
+RUN chmod 755 /executor.js
 
-# Set permissions
-RUN chown -R codver:codver /workspace
+USER codver:codver
 
-USER codver
+ENV NODE_OPTIONS="--max-old-space-size=3072"
+ENV NPM_CONFIG_LOGLEVEL=warn
 
-# Default command
-CMD ["node", "/executor.js"]
+ENTRYPOINT ["node", "/executor.js"]

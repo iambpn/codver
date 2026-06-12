@@ -1,32 +1,35 @@
-# Base image for Python projects
 FROM python:3.13-slim
 
-# Install system dependencies including Node.js 24
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    curl \
+    gh \
+    ripgrep \
+    bash \
     ca-certificates \
+    curl \
     gnupg \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Create non-root user
-RUN useradd -m -s /bin/bash codver
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent \
+    && npm cache clean --force
 
-# Set working directory
+RUN groupadd -g 1000 codver \
+    && useradd -u 1000 -g 1000 -m -s /bin/bash -d /home/codver codver
+
 WORKDIR /workspace
 
-# Copy executor script
-COPY executor.js /executor.js
+COPY --chown=codver:codver executor.js /executor.js
+RUN chmod 755 /executor.js
 
-# Set permissions
-RUN chown -R codver:codver /workspace
+USER codver:codver
 
-USER codver
+ENV NODE_OPTIONS="--max-old-space-size=3072"
+ENV NPM_CONFIG_LOGLEVEL=warn
 
-# Default command
-CMD ["node", "/executor.js"]
+ENTRYPOINT ["node", "/executor.js"]

@@ -23,6 +23,9 @@ export function initSchema(): void {
       status TEXT NOT NULL,
       pr_url TEXT,
       error_message TEXT,
+      error_type TEXT,
+      retry_count INTEGER DEFAULT 0,
+      error_pr_url TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -54,6 +57,22 @@ export function initSchema(): void {
       name TEXT NOT NULL UNIQUE,
       applied_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      api_key_id TEXT,
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      status INTEGER NOT NULL,
+      duration INTEGER NOT NULL,
+      ip TEXT,
+      user_agent TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_audit_api_key ON audit_logs(api_key_id);
   `);
 }
 

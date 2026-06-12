@@ -41,6 +41,13 @@ const envSchema = z.object({
   DEFAULT_PR_AUTHOR: z.string().default('bot'),
   CLEANUP_ON_COMPLETE: z.string().default('true').transform((v) => v === 'true'),
   CLEANUP_IMAGES_ON_COMPLETE: z.string().default('false').transform((v) => v === 'true'),
+  MAX_RETRY_COUNT: z.string().default('2').transform(Number),
+  RETRY_BASE_DELAY_MS: z.string().default('5000').transform(Number),
+  WEBHOOK_SECRET: z.string().optional(),
+  DEFAULT_MODEL: z.string().optional(),
+  DEFAULT_PROVIDER: z.string().optional(),
+  DEFAULT_THINKING_LEVEL: z.string().optional(),
+  CORS_ORIGINS: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

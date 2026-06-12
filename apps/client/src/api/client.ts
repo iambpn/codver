@@ -23,6 +23,14 @@ export class ApiClient {
     this.apiKey = config.apiKey;
   }
 
+  getBaseURL(): string {
+    return this.baseUrl;
+  }
+
+  getApiKey(): string {
+    return this.apiKey;
+  }
+
   async get<T>(path: string): Promise<ApiResponse<T>> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       headers: {
